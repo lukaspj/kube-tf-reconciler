@@ -1,14 +1,13 @@
 package main
 
 import (
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
+	"kube-recon/pkg/operator"
 	"log/slog"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
-
-	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 )
 
 func main() {
@@ -36,11 +35,9 @@ func main() {
 	}
 
 	reconciler := &operator.KrecReconciler{
-		Client:                 mgr.GetClient(),
-		Scheme:                 mgr.GetScheme(),
-		NamespaceLabel:         cfg.NamespaceLabel,
-		DefaultReconcileConfig: operator.DefaultConfig(),
-		TokenManager:           diag.NewTokenManager(metrics.Registry),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		NamespaceLabel: cfg.NamespaceLabel,
 	}
 
 	if err = reconciler.SetupWithManager(mgr); err != nil {

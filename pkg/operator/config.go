@@ -8,6 +8,6 @@ type Config struct {
 	EnableLeaderElection bool
 }
 
-func DefaultConfig() *Config {
-	return &Config{}
+func DefaultConfig() Config {
+	return Config{}
 }

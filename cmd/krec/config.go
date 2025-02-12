@@ -11,6 +11,7 @@ func ConfigFromEnvironment() (operator.Config, error) {
 
 func ConfigFromEnvironmentWithPrefix(envPrefix string) (operator.Config, error) {
 	loader := fang.New[operator.Config]().
+		WithDefault(operator.DefaultConfig()).
 		WithAutomaticEnv(envPrefix).
 		WithConfigFile(fang.ConfigFileOptions{
 			Paths: []string{"$HOME", "."},

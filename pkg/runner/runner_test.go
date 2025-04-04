@@ -10,7 +10,9 @@ import (
 )
 
 func TestRunner_Success(t *testing.T) {
-	tf := NewTerraform("terraform", t.TempDir())
+	tf, err := NewTerraform("terraform", t.TempDir())
+	assert.NoError(t, err)
+
 	sut := Runner{
 		tf: tf,
 		providerConfigs: []string{
@@ -46,12 +48,14 @@ output "prefix" {
 		},
 	}
 
-	err := sut.Init(context.Background())
+	err = sut.Init(context.Background())
 	assert.NoError(t, err)
 
 	outputs, err := sut.Execute(context.Background())
 	assert.NoError(t, err)
 	assert.NotEmpty(t, outputs)
 	assert.Len(t, outputs, 2)
-	assert.Equal(t, []string{"name", "prefix"}, slices.Collect(maps.Keys(outputs)))
+	assert.NotEmpty(t, sut.ApplyResult)
+	assert.Empty(t, sut.PlanResult)
+	assert.ElementsMatch(t, []string{"name", "prefix"}, slices.Collect(maps.Keys(outputs)))
 }

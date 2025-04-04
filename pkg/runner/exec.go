@@ -12,6 +12,7 @@ import (
 )
 
 var ErrRunning = errors.New("error running command")
+var ErrTerraformNotFound = errors.New("terraform not found")
 
 type Terraform struct {
 	Stdout        bytes.Buffer
@@ -38,9 +39,9 @@ type Output struct {
 	Value     string `json:"value"`
 }
 
-func NewTerraform(exec, wd string) *Terraform {
-	return &Terraform{
-		exec: exec,
+func NewTerraform(execPath, wd string) (*Terraform, error) {
+	tf := &Terraform{
+		exec: execPath,
 		wd:   wd,
 		rootArgs: []string{
 			"-chdir=" + wd,
@@ -53,6 +54,13 @@ func NewTerraform(exec, wd string) *Terraform {
 			"TF_IN_AUTOMATION=1",
 		},
 	}
+
+	cmd := exec.Command(execPath, "version")
+	if err := cmd.Run(); err != nil {
+		return nil, errors.Wrap(ErrTerraformNotFound, fmt.Sprintf("exec: %s", execPath))
+	}
+
+	return tf, nil
 }
 
 func (tf *Terraform) runCommand(ctx context.Context, args ...string) ([]byte, error) {
@@ -81,14 +89,14 @@ func (tf *Terraform) Init(ctx context.Context) error {
 	return err
 }
 
-func (tf *Terraform) Apply(ctx context.Context) error {
-	_, err := tf.runCommand(ctx, "apply", "-auto-approve")
-	return err
+func (tf *Terraform) Apply(ctx context.Context) (string, error) {
+	res, err := tf.runCommand(ctx, "apply", "-auto-approve")
+	return string(res), err
 }
 
-func (tf *Terraform) Plan(ctx context.Context) error {
-	_, err := tf.runCommand(ctx, "plan")
-	return err
+func (tf *Terraform) Plan(ctx context.Context) (string, error) {
+	res, err := tf.runCommand(ctx, "plan")
+	return string(res), err
 }
 
 func (tf *Terraform) Output(ctx context.Context) (Outputs, error) {

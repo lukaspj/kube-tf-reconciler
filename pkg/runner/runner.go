@@ -18,12 +18,32 @@ type Runner struct {
 	tf              *Terraform
 	providerConfigs []string
 	moduleConfigs   []string
+
+	ApplyResult string
+	PlanResult  string
+}
+
+func NewRunner(wd string, providerConfigs, moduleConfigs []string) *Runner {
+	tf, err := NewTerraform("terraform", wd)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create terraform: %v", err))
+	}
+
+	return &Runner{
+		tf:              tf,
+		providerConfigs: providerConfigs,
+		moduleConfigs:   moduleConfigs,
+		ApplyResult:     "",
+		PlanResult:      "",
+	}
 }
 
 func (r *Runner) Init(ctx context.Context) error {
 	if slices.Contains(DangerPaths, r.tf.wd) {
 		return fmt.Errorf("dangerous path: %s", r.tf.wd)
 	}
+	r.PlanResult = ""
+	r.ApplyResult = ""
 
 	if err := os.RemoveAll(r.tf.wd); err != nil {
 		return fmt.Errorf("error removing directory: %w", err)
@@ -55,10 +75,11 @@ func (r *Runner) Init(ctx context.Context) error {
 }
 
 func (r *Runner) Execute(ctx context.Context) (Outputs, error) {
-	err := r.tf.Apply(ctx)
+	res, err := r.tf.Apply(ctx)
 	if err != nil {
 		return Outputs{}, err
 	}
+	r.ApplyResult = res
 	outputs, err := r.tf.Output(ctx)
 	if err != nil {
 		return outputs, fmt.Errorf("error running Output: %w", err)

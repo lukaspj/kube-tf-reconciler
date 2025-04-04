@@ -60,7 +60,7 @@ locals {
 		assert.NoError(t, err)
 	})
 
-	t.Run("plan", func(t *testing.T) {
+	t.Run("apply", func(t *testing.T) {
 		tf, err := NewTerraform("terraform", t.TempDir())
 		assert.NoError(t, err)
 

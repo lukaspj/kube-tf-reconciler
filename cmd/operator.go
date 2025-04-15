@@ -24,8 +24,10 @@ func init() {
 	utilruntime.Must(tfreconcilev1alpha1.AddToScheme(scheme))
 }
 
-// opCmd represents the operator command
-var opCmd = &cobra.Command{
+// operatorCmd represents the operator command
+//
+//nolint:exhaustruct
+var operatorCmd = &cobra.Command{
 	Use:   "operator",
 	Short: "Operator for managing terraform resources in Kubernetes.",
 	Run: func(cmd *cobra.Command, args []string) {
@@ -80,6 +82,5 @@ var opCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(opCmd)
-	//opCmd.Flags().StringP("runtime", "r", "", "Specify the runtime to view")
+	rootCmd.AddCommand(operatorCmd)
 }

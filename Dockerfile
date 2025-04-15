@@ -5,11 +5,12 @@ RUN update-ca-certificates
 
 ARG SHA
 ARG VERSION
+ARG DATE
 
 COPY . /src
 WORKDIR /src
 
-RUN CGO_ENABLED=0 go build -ldflags "-X main.sha=$SHA -X main.version=$VERSION" -o krec main.go
+RUN CGO_ENABLED=0 go build -ldflags "-X cmd.commit=$SHA -X cmd.version=$VERSION -X cmd.date=$DATE" -o krec main.go
 
 FROM scratch AS krec
 COPY --from=build /src/krec /usr/local/bin/krec

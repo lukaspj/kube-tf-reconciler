@@ -1,8 +1,8 @@
-package main
+package cmd
 
 import (
-	"kube-recon/pkg/fang"
-	"kube-recon/pkg/operator"
+	"lukaspj.io/kube-tf-reconciler/pkg/fang"
+	"lukaspj.io/kube-tf-reconciler/pkg/operator"
 )
 
 func ConfigFromEnvironment() (operator.Config, error) {

@@ -1,0 +1,32 @@
+replicaCount: 1
+
+image:
+  repository: lukaspj/kube-tf-reconciler
+  tag: null
+  pullPolicy: IfNotPresent
+
+podMonitor:
+  enabled: false
+  labels: {}
+
+logLevel: Info
+
+imagePullSecrets: {}
+
+podSecurityContext: {}
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

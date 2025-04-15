@@ -1,0 +1,27 @@
+apiVersion: tf-reconcile.lukaspj.io/v1alpha1
+kind: Workspace
+metadata:
+  name: workspace1
+spec:
+  backend:
+    type: s3
+  providerRefs:
+    - name: test
+  module:
+    source: "./modules/customer"
+  workerSpec:
+    restartPolicy: Never
+    containers:
+      - name: worker
+        image: hashicorp/terraform:1.11
+        args:
+          - "version"
+        workingDir: /workspace
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        imagePullPolicy: IfNotPresent
+    volumes:
+      - name: workspace
+        configMap:
+            name: workspace-config

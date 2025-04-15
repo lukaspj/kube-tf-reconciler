@@ -2,14 +2,15 @@ package operator
 
 import (
 	"context"
+	"log/slog"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	"log/slog"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"time"
 )
 
 type KrecReconciler struct {
@@ -28,6 +29,6 @@ func (k *KrecReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (k *KrecReconciler) Reconcile(ctx context.Context, request ctrl.Request) (reconcile.Result, error) {
-	slog.Info("received reconcile request", request)
+	slog.Info("received reconcile request", "request", request)
 	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
 }

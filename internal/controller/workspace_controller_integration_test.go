@@ -9,7 +9,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -86,6 +85,7 @@ func TestWorkspace(t *testing.T) {
 
 		err = testutils.WaitPod(kl, ctx, "default", "worker")
 		assert.NoError(t, err)
+
 	})
 }
 
@@ -102,52 +102,16 @@ func newWorkspace() *tfreconcilev1alpha1.Workspace {
 					Raw: []byte(`{"bucket": "my-bucket"}`),
 				},
 			},
-			ProviderRefs: []tfreconcilev1alpha1.ProviderRef{
+			ProviderSpecs: []tfreconcilev1alpha1.ProviderSpec{
 				{
-					Name:      "aws",
-					Namespace: "default",
+					Name:    "aws",
+					Version: "1.0",
+					Source:  "hashicorp/aws",
 				},
 			},
 			Module: &tfreconcilev1alpha1.ModuleSpec{
 				Source:  "terraform-aws-modules/vpc/aws",
 				Version: "5.19.0",
-			},
-			WorkerSpec: &v1.PodSpec{
-				Containers: []v1.Container{
-					{
-						Name:       "worker",
-						Image:      "hashicorp/terraform:1.11",
-						Args:       []string{"version"},
-						WorkingDir: "/workspace",
-						EnvFrom:    nil,
-						Env:        nil,
-						Resources:  v1.ResourceRequirements{},
-						VolumeMounts: []v1.VolumeMount{
-							{
-								Name:      "workspace",
-								MountPath: "/workspace",
-							},
-						},
-						LivenessProbe:   nil,
-						ReadinessProbe:  nil,
-						StartupProbe:    nil,
-						Lifecycle:       nil,
-						ImagePullPolicy: v1.PullIfNotPresent,
-						SecurityContext: nil,
-					},
-				},
-				Volumes: []v1.Volume{
-					{
-						Name: "workspace",
-						VolumeSource: v1.VolumeSource{
-							ConfigMap: &v1.ConfigMapVolumeSource{
-								LocalObjectReference: v1.LocalObjectReference{
-									Name: "workspace-config",
-								},
-							},
-						},
-					},
-				},
 			},
 		},
 	}

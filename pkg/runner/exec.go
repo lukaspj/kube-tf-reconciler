@@ -1,129 +1,83 @@
 package runner
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
-	"slices"
+	"os"
+	"path/filepath"
 
-	"github.com/pkg/errors"
+	"github.com/hashicorp/go-version"
+	"github.com/hashicorp/hc-install/product"
+	"github.com/hashicorp/hc-install/releases"
+	"github.com/hashicorp/terraform-exec/tfexec"
+	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
 )
 
-var ErrRunning = errors.New("error running command")
-var ErrTerraformNotFound = errors.New("terraform not found")
-
-type Terraform struct {
-	Stdout        bytes.Buffer
-	Stderr        bytes.Buffer
-	exec          string
-	wd            string
-	rootArgs      []string
-	commonCmdArgs []string
-	env           []string
+type Exec struct {
+	RootDir       string
+	installDir    string
+	WorkspacesDir string
 }
 
-type Version struct {
-	TerraformVersion   string   `json:"terraform_version"`
-	Platform           string   `json:"platform"`
-	ProviderSelections []string `json:"provider_selections"`
-	TerraformOutdated  bool     `json:"terraform_outdated"`
-}
-
-type Outputs map[string]Output
-
-type Output struct {
-	Sensitive bool   `json:"sensitive"`
-	Type      string `json:"type"`
-	Value     string `json:"value"`
-}
-
-func NewTerraform(execPath, wd string) (*Terraform, error) {
-	tf := &Terraform{
-		exec: execPath,
-		wd:   wd,
-		rootArgs: []string{
-			"-chdir=" + wd,
-		},
-		commonCmdArgs: []string{
-			"-no-color",
-			"-json",
-		},
-		env: []string{
-			"TF_IN_AUTOMATION=1",
-		},
+func New(rootDir string) *Exec {
+	var err error
+	rootDir, err = filepath.Abs(rootDir)
+	if err != nil {
+		panic(fmt.Errorf("failed to get absolute path for root dir: %w", err))
 	}
 
-	cmd := exec.Command(execPath, "version")
-	if err := cmd.Run(); err != nil {
-		return nil, errors.Wrap(ErrTerraformNotFound, fmt.Sprintf("exec: %s", execPath))
+	err = os.MkdirAll(rootDir, 0755)
+	if err != nil {
+		panic(err)
+	}
+
+	installDir := filepath.Join(rootDir, "installs")
+	workspacesDir := filepath.Join(rootDir, "workspaces")
+	err = os.MkdirAll(installDir, 0755)
+	if err != nil {
+		panic(err)
+	}
+	err = os.MkdirAll(workspacesDir, 0755)
+	if err != nil {
+		panic(err)
+	}
+
+	return &Exec{
+		RootDir:       rootDir,
+		installDir:    installDir,
+		WorkspacesDir: workspacesDir,
+	}
+}
+
+func (e *Exec) SetupWorkspace(ws string) (string, error) {
+	fullPath := filepath.Join(e.WorkspacesDir, ws)
+	err := os.MkdirAll(fullPath, 0755)
+	if err != nil {
+		return "", fmt.Errorf("failed to create workspace dir: %w", err)
+	}
+
+	return fullPath, nil
+}
+
+func (e *Exec) GetTerraformForWorkspace(ctx context.Context, ws tfreconcilev1alpha1.Workspace) (*tfexec.Terraform, error) {
+	path, err := e.SetupWorkspace(filepath.Join(ws.Namespace, ws.Name))
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup workspace: %w", err)
+	}
+
+	installer := &releases.ExactVersion{
+		Product:    product.Terraform,
+		InstallDir: e.installDir,
+		Version:    version.Must(version.NewVersion(ws.Spec.TerraformVersion)),
+	}
+	execPath, err := installer.Install(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install terraform: %w", err)
+	}
+	tf, err := tfexec.NewTerraform(path, execPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create terraform instance: %w", err)
 	}
 
 	return tf, nil
-}
-
-func (tf *Terraform) runCommand(ctx context.Context, args ...string) ([]byte, error) {
-	args = slices.Insert(args, 0, tf.rootArgs...)
-	args = append(args, tf.commonCmdArgs...)
-	cmd := exec.CommandContext(ctx, "terraform", args...)
-	cmd.Stdout = &tf.Stdout
-	cmd.Stderr = &tf.Stderr
-
-	err := cmd.Run()
-
-	errStr := tf.Stderr.Bytes()
-	outStr := tf.Stdout.Bytes()
-	tf.Stdout.Reset()
-	tf.Stderr.Reset()
-
-	if err != nil || len(errStr) > 0 {
-		return outStr, errors.Wrap(ErrRunning, string(errStr))
-	}
-
-	return outStr, nil
-}
-
-func (tf *Terraform) Init(ctx context.Context) error {
-	_, err := tf.runCommand(ctx, "init", "-upgrade")
-	return err
-}
-
-func (tf *Terraform) Apply(ctx context.Context) (string, error) {
-	res, err := tf.runCommand(ctx, "apply", "-auto-approve")
-	return string(res), err
-}
-
-func (tf *Terraform) Plan(ctx context.Context) (string, error) {
-	res, err := tf.runCommand(ctx, "plan")
-	return string(res), err
-}
-
-func (tf *Terraform) Output(ctx context.Context) (Outputs, error) {
-	output, err := tf.runCommand(ctx, "output")
-	if err != nil {
-		return Outputs{}, fmt.Errorf("terraform output: %w", err)
-	}
-	var val Outputs
-	if err := json.Unmarshal(output, &val); err != nil {
-		return val, fmt.Errorf("unmarshal terraform output: %w", err)
-	}
-
-	return val, err
-}
-
-func (tf *Terraform) Version(ctx context.Context) (Version, error) {
-	res, err := tf.runCommand(ctx, "version")
-	if err != nil {
-		return Version{}, err
-	}
-	var v Version
-	_ = json.Unmarshal(res, &v)
-
-	return v, nil
-}
-
-func (tf *Terraform) Destroy(ctx context.Context) error {
-	_, err := tf.runCommand(ctx, "destroy", "-auto-approve")
-	return err
 }

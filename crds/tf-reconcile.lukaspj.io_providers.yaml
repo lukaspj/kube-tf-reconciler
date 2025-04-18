@@ -26,11 +26,14 @@ spec:
             type: object
           spec:
             properties:
+              name:
+                type: string
               source:
                 type: string
               version:
                 type: string
             required:
+            - name
             - source
             type: object
           status:

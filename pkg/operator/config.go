@@ -8,8 +8,16 @@ type Config struct {
 	NamespaceLabel       string
 	LeaderElectionID     string
 	EnableLeaderElection bool
+	WorkspacePath        string
 }
 
 func DefaultConfig() Config {
-	return Config{}
+	return Config{
+		Port:                 ":8080",
+		ProbeAddr:            ":8081",
+		LeaderElectionID:     "69943c0d.krec-operator.lukasjp",
+		Namespace:            "krec",
+		EnableLeaderElection: false,
+		WorkspacePath:        "./.testdata",
+	}
 }

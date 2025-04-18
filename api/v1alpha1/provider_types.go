@@ -25,6 +25,11 @@ import (
 
 // ProviderSpec defines the desired state of Provider.
 type ProviderSpec struct {
+	// Name is the name of the provider.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Source is the source of the provider.
 	Source string `json:"source"`
 	// Version is the version of the provider.
 	// +kubebuilder:validation:Optional

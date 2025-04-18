@@ -11,6 +11,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
 	"lukaspj.io/kube-tf-reconciler/internal/controller"
+	"lukaspj.io/kube-tf-reconciler/pkg/runner"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 )
@@ -47,7 +48,7 @@ var operatorCmd = &cobra.Command{
 			HealthProbeBindAddress:  cfg.ProbeAddr,
 			LeaderElectionNamespace: cfg.Namespace,
 			LeaderElection:          cfg.EnableLeaderElection,
-			LeaderElectionID:        cfg.LeaderElectionID,
+			LeaderElectionID:        "69943c0d.krec-operator.lukasjp",
 		})
 		if err != nil {
 			slog.Error("unable to start manager", "error", err)
@@ -55,8 +56,11 @@ var operatorCmd = &cobra.Command{
 		}
 
 		reconciler := &controller.WorkspaceReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
+			Client:   mgr.GetClient(),
+			Scheme:   mgr.GetScheme(),
+			Recorder: mgr.GetEventRecorderFor("krec"),
+
+			Tf: runner.New(cfg.WorkspacePath),
 		}
 
 		if err = reconciler.SetupWithManager(mgr); err != nil {

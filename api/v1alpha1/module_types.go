@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -25,22 +24,6 @@ type ModuleOutput struct {
 	// Name is the name of the output
 	Name  string `json:"name"`
 	Value string `json:"value"`
-}
-
-// ModuleSpec defines the desired state of Module.
-type ModuleSpec struct {
-	// Source is the source of the terraform module.
-	// Example:
-	// source:  "terraform-aws-modules/vpc/aws"
-	// version: "5.19.0"
-	Source string `json:"source"`
-	// Version is the version of the terraform module.
-	Version string `json:"version,omitempty"`
-
-	// Inputs are the inputs to the terraform module.
-	Inputs *apiextensionsv1.JSON `json:"inputs,omitempty"`
-	// Outputs are the outputs of the terraform module.
-	Outputs []ModuleOutput `json:"outputs,omitempty"`
 }
 
 // ModuleStatus defines the observed state of Module.
@@ -56,7 +39,7 @@ type Module struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   *ModuleSpec   `json:"spec"`
+	//Spec   *ModuleSpec   `json:"spec"`
 	Status *ModuleStatus `json:"status,omitempty"`
 }
 

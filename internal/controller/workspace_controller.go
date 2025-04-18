@@ -1,55 +1,40 @@
-/*
-Copyright 2025.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/hashicorp/terraform-exec/tfexec"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
+	"lukaspj.io/kube-tf-reconciler/pkg/render"
+	"lukaspj.io/kube-tf-reconciler/pkg/runner"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-)
-
-var (
-	WorkerStartedAnnotation = "tf-reconcile.lukaspj.io/worker-started"
 )
 
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
+
+	Tf *runner.Exec
 }
 
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+	reqStart := time.Now()
 	var ws tfreconcilev1alpha1.Workspace
 	if err := r.Client.Get(ctx, req.NamespacedName, &ws); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -59,46 +44,63 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	hcl := `terraform {
-}
-`
+	if r.dueForRefresh(reqStart, ws) {
 
-	cfg := v1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "workspace-config",
-			Namespace: ws.Namespace,
-		},
-		Data: map[string]string{
-			"workspace": hcl,
-		},
 	}
 
-	res, err := controllerutil.CreateOrPatch(ctx, r.Client, &cfg, func() error {
-		cfg.Data["workspace"] = hcl
-		return nil
-	})
-	log.WithValues("configmap_result", res).Info("set configmap")
+	if r.alreadyProcessedOnce(ws) {
+		log.Info("already processed workspace, skipping")
+		return ctrl.Result{}, nil
+	}
 
-	// Check if the worker pod already exists
-	pod, err := r.startWorkerPod(ctx, ws)
+	tf, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to start worker pod: %w", err)
+		return ctrl.Result{}, fmt.Errorf("failed to get terraform executable %s: %w", req.String(), err)
 	}
-	log.WithValues("pod", pod.Status.Phase).Info("start worker pod")
 
-	logs, err := r.receiveLogs(ctx, pod)
+	f := hclwrite.NewEmptyFile()
+	err = render.Workspace(f.Body(), ws)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to receive logs: %w", err)
+		return ctrl.Result{}, fmt.Errorf("failed to render workspace %s: %w", req.String(), err)
 	}
 
-	log.Info("pod executed successfully", "logs", logs)
+	err = render.Module(f.Body(), ws.Spec.Module)
 
-	err = r.deleteWorkerPod(ctx, pod)
+	err = os.WriteFile(filepath.Join(tf.WorkingDir(), "main.tf"), f.Bytes(), 0644)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to delete worker pod: %w", err)
+		return ctrl.Result{}, fmt.Errorf("failed to write workspace %s: %w", req.String(), err)
 	}
 
-	return ctrl.Result{}, nil
+	ws.Status.CurrentRender = string(f.Bytes())
+	err = r.Client.Status().Update(ctx, &ws)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update workspace status %s: %w", req.String(), err)
+	}
+
+	err = tf.Init(ctx, tfexec.Upgrade(true))
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to init workspace: %w", err)
+	}
+
+	changed, err := tf.Plan(ctx, tfexec.Out("plan.out"))
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to plan: %w", err)
+	}
+	plan, err := tf.ShowPlanFileRaw(ctx, "plan.out")
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to show plan file: %w", err)
+	}
+	r.Recorder.Eventf(&ws, v1.EventTypeNormal, "Planned", "Workspace %s planned", req.String())
+	ws.Status.LatestPlan = plan
+	err = r.Client.Status().Update(ctx, &ws)
+
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update workspace status %s: %w", req.String(), err)
+	}
+	log.WithValues("changed", changed).Info("planned workspace")
+
+	ws.Status.ObservedGeneration = ws.Generation
+	return ctrl.Result{}, r.Client.Status().Update(ctx, &ws)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -106,135 +108,23 @@ func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&tfreconcilev1alpha1.Workspace{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
-		Owns(&v1.Pod{}, builder.MatchEveryOwner).
 		Complete(r)
 }
 
-func (r *WorkspaceReconciler) startWorkerPod(ctx context.Context, ws tfreconcilev1alpha1.Workspace) (*v1.Pod, error) {
-	podName := fmt.Sprintf("worker-%s", ws.Name)
-	namespace := ws.Namespace
-
-	// Define the pod
-	pod := &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-		},
-		Spec: *ws.Spec.WorkerSpec,
-	}
-
-	if err := controllerutil.SetOwnerReference(&ws, pod, r.Scheme); err != nil {
-		return nil, fmt.Errorf("failed to set owner reference: %w", err)
-	}
-
-	// Create the pod
-	if err := r.Client.Create(ctx, pod); err != nil {
-		return nil, fmt.Errorf("failed to create pod: %w", err)
-	}
-
-	// Wait for the pod to become ready
-	err := r.waitForPodToBeRunning(ctx, pod)
-	if err != nil {
-		return nil, fmt.Errorf("failed to wait for pod to be: %w", err)
-	}
-
-	return pod, nil
+func (r *WorkspaceReconciler) alreadyProcessedOnce(ws tfreconcilev1alpha1.Workspace) bool {
+	return ws.Status.ObservedGeneration == ws.Generation
 }
 
-func (r *WorkspaceReconciler) waitForPodToBeRunning(ctx context.Context, pod *v1.Pod) error {
-	timeout := time.After(2 * time.Minute) // Set a timeout for waiting
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			return fmt.Errorf("timed out waiting for pod %s to be running", pod.Name)
-		case <-ticker.C:
-			// Fetch the latest pod status
-			currentPod := &v1.Pod{}
-			if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
-				return err
-			}
-
-			// Check the pod status
-			if currentPod.Status.Phase == v1.PodRunning || currentPod.Status.Phase == v1.PodSucceeded {
-				return nil
-			} else if currentPod.Status.Phase == v1.PodFailed {
-				return fmt.Errorf("pod %s is in phase %s", pod.Name, currentPod.Status.Phase)
-			}
-		}
-	}
+func (r *WorkspaceReconciler) dueForRefresh(t time.Time, ws tfreconcilev1alpha1.Workspace) bool {
+	return t.After(ws.Status.NextRefreshTimestamp.Time)
 }
 
-func (r *WorkspaceReconciler) deleteWorkerPod(ctx context.Context, pod *v1.Pod) error {
-	err := r.Delete(ctx, pod)
+func (r *WorkspaceReconciler) refreshState(ctx context.Context, ws tfreconcilev1alpha1.Workspace) error {
+	_, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
 	if err != nil {
-		return fmt.Errorf("failed to delete pod: %w", err)
+		return fmt.Errorf("refreshState: failed to get terraform executable %s: %w", ws.Name, err)
 	}
 
-	return nil
-}
-
-// receiveLogsOld from the pod
-func (r *WorkspaceReconciler) receiveLogsOld(ctx context.Context, pod *v1.Pod) ([]string, error) {
-	config, err := rest.InClusterConfig()
-	var logs []string
-	if err != nil {
-		return logs, fmt.Errorf("failed to get in-cluster config: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return logs, fmt.Errorf("failed to create clientset: %w", err)
-	}
-
-	// Stream the pod logs
-	req := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &v1.PodLogOptions{Follow: true})
-	stream, err := req.Stream(ctx)
-	if err != nil {
-		return logs, fmt.Errorf("failed to stream logs: %w", err)
-	}
-	defer stream.Close()
-
-	reader := bufio.NewReader(stream)
-	for {
-		line, err := reader.ReadString('\n')
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return logs, fmt.Errorf("error reading log stream: %w", err)
-		}
-		logs = append(logs, line)
-	}
-
-	return logs, nil
-}
-
-func (r *WorkspaceReconciler) receiveLogs(ctx context.Context, pod *v1.Pod) ([]string, error) {
-
-	c := kubernetes.NewForConfigOrDie(ctrl.GetConfigOrDie())
-	var logs []string
-	// Stream the pod logs
-	req := c.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &v1.PodLogOptions{Follow: true})
-	stream, err := req.Stream(ctx)
-	if err != nil {
-		return logs, fmt.Errorf("failed to stream logs: %w", err)
-	}
-	defer stream.Close()
-
-	reader := bufio.NewReader(stream)
-	for {
-		line, err := reader.ReadString('\n')
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return logs, fmt.Errorf("error reading log stream: %w", err)
-		}
-		logs = append(logs, line)
-	}
-
-	return logs, nil
+	ws.Status.NextRefreshTimestamp = metav1.NewTime(time.Now().Add(time.Minute * 5))
+	return r.Client.Status().Update(ctx, &ws)
 }

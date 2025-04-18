@@ -24,33 +24,8 @@ spec:
             type: string
           metadata:
             type: object
-          spec:
-            properties:
-              inputs:
-                x-kubernetes-preserve-unknown-fields: true
-              outputs:
-                items:
-                  properties:
-                    name:
-                      type: string
-                    value:
-                      type: string
-                  required:
-                  - name
-                  - value
-                  type: object
-                type: array
-              source:
-                type: string
-              version:
-                type: string
-            required:
-            - source
-            type: object
           status:
             type: object
-        required:
-        - spec
         type: object
     served: true
     storage: true

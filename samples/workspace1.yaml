@@ -3,25 +3,18 @@ kind: Workspace
 metadata:
   name: workspace1
 spec:
+  terraformVersion: 1.11.2
   backend:
-    type: s3
-  providerRefs:
-    - name: test
+    type: local
+  providerSpecs:
+    - name: aws
+      source: hashicorp/aws
+      version: 5.94.1
   module:
-    source: "./modules/customer"
-  workerSpec:
-    restartPolicy: Never
-    containers:
-      - name: worker
-        image: hashicorp/terraform:1.11
-        args:
-          - "version"
-        workingDir: /workspace
-        volumeMounts:
-        - name: workspace
-          mountPath: /workspace
-        imagePullPolicy: IfNotPresent
-    volumes:
-      - name: workspace
-        configMap:
-            name: workspace-config
+    name: my-module
+    source: terraform-aws-modules/iam/aws//modules/iam-account
+    version: 5.0.0
+    inputs:
+      account_alias: "awesome-company"
+      minimum_password_length: 37
+      require_numbers: false

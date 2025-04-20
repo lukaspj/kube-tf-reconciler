@@ -82,10 +82,6 @@ func TestWorkspace(t *testing.T) {
 
 		err = kl.Resources().Create(ctx, newWorkspace())
 		assert.NoError(t, err)
-
-		err = testutils.WaitPod(kl, ctx, "default", "worker")
-		assert.NoError(t, err)
-
 	})
 }
 

@@ -3,6 +3,7 @@ package testutils
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -180,4 +182,12 @@ func CreateNamespace(c klient.Client, ctx context.Context, name string, opts ...
 		return fmt.Errorf("create namespace func: %w", err)
 	}
 	return nil
+}
+
+func Json(data any) *apiextensionsv1.JSON {
+	b, err := json.Marshal(data)
+	if err != nil {
+		panic(err)
+	}
+	return &apiextensionsv1.JSON{Raw: b}
 }

@@ -5,8 +5,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/stretchr/testify/assert"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
+	"lukaspj.io/kube-tf-reconciler/internal/testutils"
 )
 
 func TestRenderWorkspace_Success(t *testing.T) {
@@ -22,9 +22,9 @@ func TestRenderWorkspace_Success(t *testing.T) {
 			},
 			Backend: tfreconcilev1alpha1.BackendSpec{
 				Type: "s3",
-				Inputs: &apiextensionsv1.JSON{
-					Raw: []byte(`{"bucket": "my-bucket"}`),
-				},
+				Inputs: testutils.Json(map[string]interface{}{
+					"bucket": "my-bucket",
+				}),
 			},
 		},
 	}

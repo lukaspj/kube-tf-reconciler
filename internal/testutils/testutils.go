@@ -17,6 +17,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/e2e-framework/klient"
 	"sigs.k8s.io/e2e-framework/klient/decoder"
@@ -190,4 +191,12 @@ func Json(data any) *apiextensionsv1.JSON {
 		panic(err)
 	}
 	return &apiextensionsv1.JSON{Raw: b}
+}
+
+func WsCurrentGeneration(object k8s.Object) bool {
+	workspace, ok := object.(*tfreconcilev1alpha1.Workspace)
+	if !ok {
+		return false
+	}
+	return workspace.Generation == workspace.Status.ObservedGeneration
 }

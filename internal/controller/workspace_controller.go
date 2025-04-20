@@ -57,21 +57,17 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get terraform executable %s: %w", req.String(), err)
 	}
+	tf.SetEnv(map[string]string{
+		"AWS_REGION": "eu-west-1",
+		"PATH":       os.Getenv("PATH"),
+	})
 
-	f := hclwrite.NewEmptyFile()
-	err = render.Workspace(f.Body(), ws)
+	result, err := r.renderHcl(tf.WorkingDir(), ws)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to render workspace %s: %w", req.String(), err)
 	}
 
-	err = render.Module(f.Body(), ws.Spec.Module)
-
-	err = os.WriteFile(filepath.Join(tf.WorkingDir(), "main.tf"), f.Bytes(), 0644)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to write workspace %s: %w", req.String(), err)
-	}
-
-	ws.Status.CurrentRender = string(f.Bytes())
+	ws.Status.CurrentRender = string(result)
 	err = r.Client.Status().Update(ctx, &ws)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update workspace status %s: %w", req.String(), err)
@@ -101,6 +97,32 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	ws.Status.ObservedGeneration = ws.Generation
 	return ctrl.Result{}, r.Client.Status().Update(ctx, &ws)
+}
+
+func (r *WorkspaceReconciler) renderHcl(workspaceDir string, ws tfreconcilev1alpha1.Workspace) ([]byte, error) {
+	f := hclwrite.NewEmptyFile()
+	err := render.Workspace(f.Body(), ws)
+	renderErr := fmt.Errorf("failed to render workspace %s/%s", ws.Namespace, ws.Name)
+	if err != nil {
+		return f.Bytes(), fmt.Errorf("%w: %w", renderErr, err)
+	}
+
+	err = render.Providers(f.Body(), ws.Spec.ProviderSpecs)
+	if err != nil {
+		return f.Bytes(), fmt.Errorf("%w: failed to render providers: %w", renderErr, err)
+	}
+
+	err = render.Module(f.Body(), ws.Spec.Module)
+	if err != nil {
+		return f.Bytes(), fmt.Errorf("%w: failed to render module: %w", renderErr, err)
+	}
+
+	err = os.WriteFile(filepath.Join(workspaceDir, "main.tf"), f.Bytes(), 0644)
+	if err != nil {
+		return f.Bytes(), fmt.Errorf("%w: failed to write workspace: %w", renderErr, err)
+	}
+
+	return f.Bytes(), nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

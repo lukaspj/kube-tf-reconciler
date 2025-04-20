@@ -14,6 +14,25 @@ type BackendSpec struct {
 	Inputs *apiextensionsv1.JSON `json:"inputs,omitempty"`
 }
 
+type ModuleOutput struct {
+	// Name is the name of the output
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// ProviderSpec defines the desired state of Provider.
+type ProviderSpec struct {
+	// Name is the name of the provider.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Source is the source of the provider.
+	Source string `json:"source"`
+	// Version is the version of the provider.
+	// +kubebuilder:validation:Optional
+	Version string `json:"version,omitempty"`
+}
+
 // ModuleSpec defines the desired state of Module.
 type ModuleSpec struct {
 	// Name is the name of the terraform module.
@@ -21,13 +40,17 @@ type ModuleSpec struct {
 	// name: "my-module"
 	// source:  "terraform-aws-modules/vpc/aws"
 	// version: "5.19.0"
+	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 	// Source is the source of the terraform module.
+	// +kubebuilder:validation:Required
 	Source string `json:"source"`
 	// Version is the version of the terraform module.
+	// +kubebuilder:validation:Optional
 	Version string `json:"version,omitempty"`
 
 	// Inputs are the inputs to the terraform module.
+	// +kubebuilder:validation:Optional
 	Inputs *apiextensionsv1.JSON `json:"inputs,omitempty"`
 	// Outputs are the outputs of the terraform module.
 	Outputs []ModuleOutput `json:"outputs,omitempty"`
@@ -85,5 +108,5 @@ type WorkspaceList struct {
 }
 
 func init() {
-	//SchemeBuilder.Register(&Workspace{}, &WorkspaceList{})
+	SchemeBuilder.Register(&Workspace{}, &WorkspaceList{})
 }

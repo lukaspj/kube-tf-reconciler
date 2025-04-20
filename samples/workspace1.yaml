@@ -13,8 +13,10 @@ spec:
   module:
     name: my-module
     source: terraform-aws-modules/iam/aws//modules/iam-account
-    version: 5.0.0
+    version: 5.1.0
     inputs:
       account_alias: "awesome-company"
       minimum_password_length: 37
       require_numbers: false
+
+#   source = "git@github.com:LEGO/novus-platform.git//novus-runtime/novus-runtime-resource-blueprint?ref=main&depth=1"

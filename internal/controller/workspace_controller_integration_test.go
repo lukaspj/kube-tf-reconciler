@@ -16,8 +16,11 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
 	"lukaspj.io/kube-tf-reconciler/internal/testutils"
+	"lukaspj.io/kube-tf-reconciler/pkg/runner"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/e2e-framework/klient"
+	"sigs.k8s.io/e2e-framework/klient/wait"
+	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
 	"sigs.k8s.io/e2e-framework/support/kind"
 )
 
@@ -64,8 +67,10 @@ func TestWorkspace(t *testing.T) {
 		assert.NoError(t, err)
 
 		reconciler := &WorkspaceReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
+			Client:   mgr.GetClient(),
+			Scheme:   mgr.GetScheme(),
+			Tf:       runner.New(t.TempDir()),
+			Recorder: mgr.GetEventRecorderFor("krec"),
 		}
 		kl, err := klient.New(mgr.GetConfig())
 		assert.NoError(t, err)
@@ -80,8 +85,33 @@ func TestWorkspace(t *testing.T) {
 
 		<-mgr.Elected()
 
-		err = kl.Resources().Create(ctx, newWorkspace())
+		ws := newWorkspace()
+		err = kl.Resources().Create(ctx, ws)
 		assert.NoError(t, err)
+
+		condition := conditions.New(kl.Resources()).ResourceMatch(ws, testutils.WsCurrentGeneration)
+		err = wait.For(condition, wait.WithContext(ctx), wait.WithTimeout(10*time.Second))
+		assert.NoError(t, err)
+
+		expectedRender := `terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "1.0"
+    }
+  }
+  backend "s3" {
+    bucket = "my-bucket"
+  }
+}
+provider "aws" {
+}
+module "my-module" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.19.0"
+}
+`
+		assert.Equal(t, expectedRender, ws.Status.CurrentRender)
 	})
 }
 
@@ -92,6 +122,7 @@ func newWorkspace() *tfreconcilev1alpha1.Workspace {
 			Namespace: "default",
 		},
 		Spec: tfreconcilev1alpha1.WorkspaceSpec{
+			TerraformVersion: "1.11.2",
 			Backend: tfreconcilev1alpha1.BackendSpec{
 				Type: "s3",
 				Inputs: &apiextensionsv1.JSON{
@@ -106,6 +137,7 @@ func newWorkspace() *tfreconcilev1alpha1.Workspace {
 				},
 			},
 			Module: &tfreconcilev1alpha1.ModuleSpec{
+				Name:    "my-module",
 				Source:  "terraform-aws-modules/vpc/aws",
 				Version: "5.19.0",
 			},

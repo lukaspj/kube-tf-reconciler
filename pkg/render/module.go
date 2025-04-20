@@ -17,6 +17,11 @@ func Module(body *hclwrite.Body, m *tfreconcilev1alpha1.ModuleSpec) error {
 	moduleBlock := body.AppendNewBlock("module", []string{m.Name})
 	// Set the source attribute
 	moduleBlock.Body().SetAttributeValue("source", cty.StringVal(m.Source))
+
+	if m.Version != "" {
+		moduleBlock.Body().SetAttributeValue("version", cty.StringVal(m.Version))
+	}
+
 	if m.Inputs != nil {
 		var inputs map[string]interface{}
 		err := json.Unmarshal(m.Inputs.Raw, &inputs)

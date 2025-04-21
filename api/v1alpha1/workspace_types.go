@@ -20,6 +20,44 @@ type ModuleOutput struct {
 	Value string `json:"value"`
 }
 
+// EnvVar represents an environment variable present in the terraform process.
+type EnvVar struct {
+	// Name of the environment variable.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Value of the environment variable.
+	// either Value or ConfigMapKeyRef or SecretKeyRef must be set
+	// +kubebuilder:validation:Optional
+	Value string `json:"value,omitempty"`
+	// Selects a key of a ConfigMap.
+	// +kubebuilder:validation:Optional
+	ConfigMapKeyRef *ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
+	// Selects a key of a secret in the Workspace namespace
+	// +kubebuilder:validation:Optional
+	SecretKeyRef *SecretKeySelector `json:"secretKeyRef,omitempty"`
+}
+
+// ConfigMapKeySelector Selects a key from a ConfigMap.
+type ConfigMapKeySelector struct {
+	// The Name of the ConfigMap in the Workspace namespace to select from.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+	// The Key to select.
+	// +kubebuilder:validation:Required
+	Key string `json:"key"`
+}
+
+// SecretKeySelector selects a key of a Secret.
+type SecretKeySelector struct {
+	// The Name of the secret in the Workspace namespace to select from.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+	// The Key of the secret to select from. Must be a valid secret key.
+	// +kubebuilder:validation:Required
+	Key string `json:"key"`
+}
+
 // ProviderSpec defines the desired state of Provider.
 type ProviderSpec struct {
 	// Name is the name of the provider.
@@ -56,6 +94,13 @@ type ModuleSpec struct {
 	Outputs []ModuleOutput `json:"outputs,omitempty"`
 }
 
+// TFSpec defines the config options for executing terraform.
+type TFSpec struct {
+	// Env is a list of environment variables to set for the terraform process
+	// +kubebuilder:validation:Required
+	Env []EnvVar `json:"env,omitempty"`
+}
+
 // WorkspaceSpec defines the desired state of Workspace.
 type WorkspaceSpec struct {
 	// TerraformVersion is the version of terraform to use
@@ -73,6 +118,10 @@ type WorkspaceSpec struct {
 	// Module is the module configuration for the workspace
 	// +kubebuilder:validation:Required
 	Module *ModuleSpec `json:"module"`
+
+	// TFExec is the terraform execution configuration
+	// +kubebuilder:validation:Optional
+	TFExec *TFSpec `json:"tf,omitempty"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace.

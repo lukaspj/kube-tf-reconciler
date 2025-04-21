@@ -53,14 +53,23 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
+	envs, err := r.getEnvsForExecution(ctx, ws)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get envs for execution: %w", err)
+	}
+
 	tf, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get terraform executable %s: %w", req.String(), err)
 	}
-	tf.SetEnv(map[string]string{
-		"AWS_REGION": "eu-west-1",
-		"PATH":       os.Getenv("PATH"),
-	})
+
+	envs["HOME"] = os.Getenv("HOME")
+	envs["PATH"] = os.Getenv("PATH")
+
+	err = tf.SetEnv(envs)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to set terraform env: %w", err)
+	}
 
 	result, err := r.renderHcl(tf.WorkingDir(), ws)
 	if err != nil {
@@ -89,10 +98,10 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	r.Recorder.Eventf(&ws, v1.EventTypeNormal, "Planned", "Workspace %s planned", req.String())
 	ws.Status.LatestPlan = plan
 	err = r.Client.Status().Update(ctx, &ws)
-
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update workspace status %s: %w", req.String(), err)
 	}
+
 	log.WithValues("changed", changed).Info("planned workspace")
 
 	ws.Status.ObservedGeneration = ws.Generation
@@ -149,4 +158,47 @@ func (r *WorkspaceReconciler) refreshState(ctx context.Context, ws tfreconcilev1
 
 	ws.Status.NextRefreshTimestamp = metav1.NewTime(time.Now().Add(time.Minute * 5))
 	return r.Client.Status().Update(ctx, &ws)
+}
+
+func (r *WorkspaceReconciler) getEnvsForExecution(ctx context.Context, ws tfreconcilev1alpha1.Workspace) (map[string]string, error) {
+	if ws.Spec.TFExec == nil {
+		return map[string]string{}, nil
+	}
+	if ws.Spec.TFExec.Env == nil {
+		return map[string]string{}, nil
+	}
+	envs := make(map[string]string)
+	for _, env := range ws.Spec.TFExec.Env {
+		if env.Name == "" {
+			continue
+		}
+		if env.Value != "" {
+			envs[env.Name] = env.Value
+			continue
+		}
+		if env.ConfigMapKeyRef != nil {
+			var cm v1.ConfigMap
+			err := r.Client.Get(ctx, client.ObjectKey{Namespace: ws.Namespace, Name: env.ConfigMapKeyRef.Name}, &cm)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get configmap %s: %w", env.ConfigMapKeyRef.Name, err)
+			}
+			if val, ok := cm.Data[env.ConfigMapKeyRef.Key]; ok {
+				envs[env.Name] = val
+				continue
+			}
+		}
+		if env.SecretKeyRef != nil {
+			var secret v1.Secret
+			err := r.Client.Get(ctx, client.ObjectKey{Namespace: ws.Namespace, Name: env.SecretKeyRef.Name}, &secret)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get secret %s: %w", env.SecretKeyRef.Name, err)
+			}
+			if val, ok := secret.Data[env.SecretKeyRef.Key]; ok {
+				envs[env.Name] = string(val)
+				continue
+			}
+		}
+	}
+
+	return envs, nil
 }

@@ -89,6 +89,42 @@ spec:
                 type: array
               terraformVersion:
                 type: string
+              tf:
+                properties:
+                  env:
+                    items:
+                      properties:
+                        configMapKeyRef:
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        name:
+                          type: string
+                        secretKeyRef:
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        value:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                required:
+                - env
+                type: object
             required:
             - backend
             - module

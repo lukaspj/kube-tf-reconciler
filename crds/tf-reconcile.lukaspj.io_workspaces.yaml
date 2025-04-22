@@ -11,6 +11,9 @@ spec:
     kind: Workspace
     listKind: WorkspaceList
     plural: workspaces
+    shortNames:
+    - tfws
+    - ws
     singular: workspace
   scope: Namespaced
   versions:
@@ -143,10 +146,13 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              validRender:
+                type: boolean
             required:
             - currentRender
             - latestPlan
             - observedGeneration
+            - validRender
             type: object
         type: object
     served: true

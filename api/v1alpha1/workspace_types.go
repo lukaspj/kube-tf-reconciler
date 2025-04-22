@@ -130,6 +130,8 @@ type WorkspaceStatus struct {
 	LatestPlan string `json:"latestPlan"`
 	// CurrentRender is the current render of the workspace
 	CurrentRender string `json:"currentRender"`
+	// ValidRender is the result of the validation of the workspace
+	ValidRender bool `json:"validRender"`
 	// NextRefreshTimestamp is the next time the workspace will be refreshed
 	// +kubebuilder:validation:Optional
 	NextRefreshTimestamp metav1.Time `json:"nextRefreshTimestamp"`
@@ -140,6 +142,7 @@ type WorkspaceStatus struct {
 // Workspace is the Schema for the workspaces API.
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=tfws;ws
 type Workspace struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

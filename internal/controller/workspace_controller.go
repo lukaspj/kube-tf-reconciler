@@ -23,6 +23,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const (
+	TFErrEventReason = "TerraformError"
+)
+
 // WorkspaceReconciler reconciles a Workspace object
 type WorkspaceReconciler struct {
 	client.Client
@@ -55,12 +59,16 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	envs, err := r.getEnvsForExecution(ctx, ws)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get envs for execution: %w", err)
+		err = fmt.Errorf("failed to get envs for execution: %w", err)
+		r.Recorder.Eventf(&ws, v1.EventTypeWarning, TFErrEventReason, err.Error())
+		return ctrl.Result{}, err
 	}
 
 	tf, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get terraform executable %s: %w", req.String(), err)
+		err = fmt.Errorf("failed to get terraform executable %s: %w", req.String(), err)
+		r.Recorder.Eventf(&ws, v1.EventTypeWarning, TFErrEventReason, err.Error())
+		return ctrl.Result{}, err
 	}
 
 	envs["HOME"] = os.Getenv("HOME")
@@ -68,7 +76,9 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	err = tf.SetEnv(envs)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to set terraform env: %w", err)
+		err = fmt.Errorf("failed to set terraform env: %w", err)
+		r.Recorder.Eventf(&ws, v1.EventTypeWarning, TFErrEventReason, err.Error())
+		return ctrl.Result{}, err
 	}
 
 	result, err := r.renderHcl(tf.WorkingDir(), ws)
@@ -87,9 +97,21 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("failed to init workspace: %w", err)
 	}
 
+	valResult, err := tf.Validate(ctx)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to validate workspace: %w", err)
+	}
+	ws.Status.ValidRender = valResult.Valid
+	err = r.Client.Status().Update(ctx, &ws)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update workspace status %s: %w", req.String(), err)
+	}
+
 	changed, err := tf.Plan(ctx, tfexec.Out("plan.out"))
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to plan: %w", err)
+		err = fmt.Errorf("failed to plan workspace %s: %w", req.String(), err)
+		r.Recorder.Eventf(&ws, v1.EventTypeWarning, TFErrEventReason, err.Error())
+		return ctrl.Result{}, err
 	}
 	plan, err := tf.ShowPlanFileRaw(ctx, "plan.out")
 	if err != nil {

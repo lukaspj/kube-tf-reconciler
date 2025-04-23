@@ -24,7 +24,9 @@ import (
 )
 
 const (
-	TFErrEventReason = "TerraformError"
+	TFErrEventReason   = "TerraformError"
+	TFPlanEventReason  = "TerraformPlan"
+	TFApplyEventReason = "TerraformApply"
 )
 
 // WorkspaceReconciler reconciles a Workspace object
@@ -117,7 +119,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to show plan file: %w", err)
 	}
-	r.Recorder.Eventf(&ws, v1.EventTypeNormal, "Planned", "Workspace %s planned", req.String())
+	r.Recorder.Eventf(&ws, v1.EventTypeNormal, TFPlanEventReason, "Workspace %s planned", req.String())
 	ws.Status.LatestPlan = plan
 	err = r.Client.Status().Update(ctx, &ws)
 	if err != nil {
@@ -125,6 +127,16 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	log.WithValues("changed", changed).Info("planned workspace")
+
+	if ws.Spec.AutoApply && changed {
+		err = tf.Apply(ctx)
+		if err != nil {
+			err = fmt.Errorf("failed to apply workspace %s: %w", req.String(), err)
+			r.Recorder.Eventf(&ws, v1.EventTypeWarning, TFErrEventReason, err.Error())
+			return ctrl.Result{}, err
+		}
+		r.Recorder.Eventf(&ws, v1.EventTypeNormal, TFApplyEventReason, "Workspace %s applied", req.String())
+	}
 
 	ws.Status.ObservedGeneration = ws.Generation
 	return ctrl.Result{}, r.Client.Status().Update(ctx, &ws)

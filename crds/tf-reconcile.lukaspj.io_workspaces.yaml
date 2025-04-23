@@ -29,6 +29,9 @@ spec:
             type: object
           spec:
             properties:
+              autoApply:
+                default: false
+                type: boolean
               backend:
                 properties:
                   inputs:
@@ -129,6 +132,7 @@ spec:
                 - env
                 type: object
             required:
+            - autoApply
             - backend
             - module
             - providerSpecs

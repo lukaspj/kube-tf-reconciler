@@ -122,6 +122,10 @@ type WorkspaceSpec struct {
 	// TFExec is the terraform execution configuration
 	// +kubebuilder:validation:Optional
 	TFExec *TFSpec `json:"tf,omitempty"`
+
+	// AutoApply is a flag to indicate if the workspace should be automatically applied
+	// +kubebuilder:default=false
+	AutoApply bool `json:"autoApply"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace.

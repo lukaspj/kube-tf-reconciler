@@ -1,0 +1,34 @@
+name: Build and Push Image to GHCR
+
+on:
+  push:
+    branches: [ test-build-push ]
+  #   tags: [ 'v*' ]
+  # pull_request:
+  #   branches: [ main ]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # Needed for attestation
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Update Dockerfile Go version
+        run: |
+          sed -i 's/FROM golang:1.24-alpine/FROM golang:1.22-alpine/' Dockerfile
+
+      - name: Build and Push with Novus Build
+        uses: LEGO/novus-build@main
+        with:
+          image: kube-tf-reconciler
+          platforms: linux/amd64,linux/arm64
+          dockerfile: Dockerfile
+          binaryname: krec
+          command: operator
+          token: ${{ secrets.GITHUB_TOKEN }}

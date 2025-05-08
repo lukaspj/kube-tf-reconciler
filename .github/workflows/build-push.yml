@@ -19,6 +19,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Generate build date
+        id: date
+        run: echo "BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
+
       - name: Docker meta 📦
         id: meta
         uses: docker/metadata-action@v5
@@ -54,6 +58,7 @@ jobs:
           build-args: |
             SHA=${{ github.sha }}
             VERSION=v0.0.1
+            DATE=${{ steps.date.outputs.BUILD_DATE }}
 
       - name: Generate GHCR artifact attestation 🎖️
         if: github.event_name != 'pull_request'

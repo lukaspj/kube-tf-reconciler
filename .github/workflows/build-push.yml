@@ -10,8 +10,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write # Needed for attestation
-  actions: write
 
 jobs:
   build:
@@ -60,11 +58,3 @@ jobs:
             SHA=${{ github.sha }}
             VERSION=v0.0.1
             DATE=${{ steps.date.outputs.BUILD_DATE }}
-
-      - name: Generate GHCR artifact attestation 🎖️
-        if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-name: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}/kube-tf-reconciler@${{ steps.build.outputs.digest }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true

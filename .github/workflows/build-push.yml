@@ -54,7 +54,6 @@ jobs:
           build-args: |
             SHA=${{ github.sha }}
             VERSION=v0.0.1
-            DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
       - name: Generate GHCR artifact attestation 🎖️
         if: github.event_name != 'pull_request'

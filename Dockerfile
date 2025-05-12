@@ -16,10 +16,18 @@ FROM alpine:3.19 AS krec
 # Install required tools
 RUN apk add --no-cache ca-certificates git
 
-# Create workspace directory structure
+# Create non-root user
+RUN addgroup -g 1000 krec && \
+    adduser -u 1000 -G krec -s /bin/sh -D krec
+
+# Create workspace directory structure with proper permissions
 RUN mkdir -p /tmp/workspaces/installs && \
-    chmod -R 777 /tmp/workspaces
+    chown -R krec:krec /tmp/workspaces && \
+    chmod -R 775 /tmp/workspaces
 
 COPY --from=build /src/krec /usr/local/bin/krec
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Switch to non-root user
+USER 1000
 ENTRYPOINT ["krec", "operator"]

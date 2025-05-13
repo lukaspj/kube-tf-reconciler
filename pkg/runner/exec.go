@@ -130,10 +130,10 @@ func (e *Exec) GetTerraformForWorkspace(ctx context.Context, ws tfreconcilev1alp
 		consoleLogger.Printf("Successfully verified binary at %s", execPath)
 	}
 
-	tf, err := tfexec.NewTerraform(path, execPath)
+	terraform, err := tfexec.NewTerraform(path, execPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terraform instance: %w", err)
 	}
 
-	return tf, nil
+	return terraform, nil
 }

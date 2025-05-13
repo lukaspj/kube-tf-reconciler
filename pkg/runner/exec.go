@@ -80,7 +80,7 @@ func (e *Exec) GetTerraformForWorkspace(ctx context.Context, ws tfreconcilev1alp
 
 	// Try creating a test file to verify write permissions
 	testFile := filepath.Join(e.installDir, "test_permissions.txt")
-	tf, err := os.Create(testFile)
+	tf, err := os.CreateTemp(e.installDir, "test_permissions_*.txt")
 	if err != nil {
 		consoleLogger.Printf("Failed to create test file in install dir: %v", err)
 	} else {

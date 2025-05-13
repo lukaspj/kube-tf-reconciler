@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -70,6 +71,12 @@ func (e *Exec) GetTerraformForWorkspace(ctx context.Context, ws tfreconcilev1alp
 		InstallDir: e.installDir,
 		Version:    version.Must(version.NewVersion(ws.Spec.TerraformVersion)),
 	}
+	// Create a logger that writes to the console
+	consoleLogger := log.New(os.Stdout, "ExactVersion: ", log.LstdFlags)
+
+	// Pass the logger to the installer
+	installer.SetLogger(consoleLogger)
+
 	execPath, err := installer.Install(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to install terraform: %w", err)

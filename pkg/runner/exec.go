@@ -109,6 +109,8 @@ func (e *Exec) GetTerraformForWorkspace(ctx context.Context, ws tfreconcilev1alp
 
 	installer.SetLogger(consoleLogger)
 
+	ctx = context.Background()
+	// Set a timeout for the installation
 	execPath, err := installer.Install(ctx)
 	if err != nil {
 		// Add more context to the error

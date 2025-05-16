@@ -16,8 +16,10 @@ spec:
       serviceAccountName: {{ .Values.appName }}
       securityContext:
         runAsNonRoot: true
+      {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
-        - name: novus-pull-secret
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
       volumes:
         - name: terraform-data
           emptyDir: {}

@@ -22,7 +22,6 @@ spec:
           key: session-token
   backend:
     type: local
-  autoApply: false
   providerSpecs:
     - name: aws
       source: hashicorp/aws

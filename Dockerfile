@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 go build -ldflags "-X cmd.commit=$SHA -X cmd.version=$VERSION 
 
 FROM alpine:3.19 AS krec
 
-RUN apk add --no-cache ca-certificates git
+RUN apk add --no-cache ca-certificates git openssh-client
 
 COPY --from=build /src/krec /usr/local/bin/krec
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/

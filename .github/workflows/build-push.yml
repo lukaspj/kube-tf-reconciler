@@ -2,10 +2,7 @@ name: Build and Push Image to GHCR
 
 on:
   push:
-    branches: [ test-build-push ]
-  #   tags: [ 'v*' ]
-  # pull_request:
-  #   branches: [ main ]
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -56,5 +53,4 @@ jobs:
           platforms: linux/amd64
           build-args: |
             SHA=${{ github.sha }}
-            VERSION=v0.0.1
             DATE=${{ steps.date.outputs.BUILD_DATE }}

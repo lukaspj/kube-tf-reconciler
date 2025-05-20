@@ -10,7 +10,7 @@ ARG DATE
 COPY . /src
 WORKDIR /src
 
-RUN CGO_ENABLED=0 go build -ldflags "-X cmd.commit=$SHA -X cmd.version=$VERSION -X cmd.date=$DATE" -o krec main.go
+RUN CGO_ENABLED=0 go build -ldflags "-X cmd.commit=$SHA -X cmd.date=$DATE" -o krec main.go
 
 FROM alpine:3.19 AS krec
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hc-install/product"
@@ -70,6 +71,10 @@ func (e *Exec) GetTerraformForWorkspace(ctx context.Context, ws tfreconcilev1alp
 		InstallDir: e.installDir,
 		Version:    version.Must(version.NewVersion(ws.Spec.TerraformVersion)),
 	}
+
+	//custom timeout because Openshift is slow
+	installer.Timeout = 2 * time.Minute
+
 	execPath, err := installer.Install(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to install terraform: %w", err)

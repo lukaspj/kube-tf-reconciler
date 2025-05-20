@@ -126,6 +126,10 @@ type WorkspaceSpec struct {
 	// AutoApply is a flag to indicate if the workspace should be automatically applied
 	// +kubebuilder:default=false
 	AutoApply bool `json:"autoApply"`
+
+	// TerraformRC contains the content of the .terraformrc file
+	// +kubebuilder:validation:Optional
+	TerraformRC string `json:"terraformRC,omitempty"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace.

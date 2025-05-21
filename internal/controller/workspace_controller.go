@@ -66,7 +66,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	tf, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
+	tf, terraformRCPath, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
 	if err != nil {
 		err = fmt.Errorf("failed to get terraform executable %s: %w", req.String(), err)
 		r.Recorder.Eventf(&ws, v1.EventTypeWarning, TFErrEventReason, err.Error())
@@ -75,6 +75,10 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	envs["HOME"] = os.Getenv("HOME")
 	envs["PATH"] = os.Getenv("PATH")
+
+	if terraformRCPath != "" {
+		envs["TF_CLI_CONFIG_FILE"] = terraformRCPath
+	}
 
 	err = tf.SetEnv(envs)
 	if err != nil {
@@ -185,7 +189,7 @@ func (r *WorkspaceReconciler) dueForRefresh(t time.Time, ws tfreconcilev1alpha1.
 }
 
 func (r *WorkspaceReconciler) refreshState(ctx context.Context, ws tfreconcilev1alpha1.Workspace) error {
-	_, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
+	_, _, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
 	if err != nil {
 		return fmt.Errorf("refreshState: failed to get terraform executable %s: %w", ws.Name, err)
 	}

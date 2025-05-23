@@ -23,6 +23,12 @@ spec:
       volumes:
         - name: terraform-data
           emptyDir: {}
+        - name: token
+          projected:
+            sources:
+            - serviceAccountToken:
+                path: token
+
       containers:
       - name: {{ .Values.appName }}
         image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
@@ -33,6 +39,9 @@ spec:
         volumeMounts:
           - mountPath: /tmp
             name: terraform-data
+          - mountPath: /var/run/secrets/kubernetes.io/serviceaccount/token
+            name: id-token
+            readOnly: true
         env:
         {{- range $key, $value := .Values.env }}
         - name: {{ $key }}

@@ -29,7 +29,6 @@ spec:
               - serviceAccountToken:
                   path: aws-jwt
                   expirationSeconds: 7200
-                  audience: openshift
 
       containers:
       - name: {{ .Values.appName }}

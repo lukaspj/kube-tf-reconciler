@@ -23,11 +23,13 @@ spec:
       volumes:
         - name: terraform-data
           emptyDir: {}
-        - name: token
+        - name: aws-jwt
           projected:
             sources:
-            - serviceAccountToken:
-                path: token
+              - serviceAccountToken:
+                  path: aws-jwt
+                  expirationSeconds: 7200
+                  audience: openshift
 
       containers:
       - name: {{ .Values.appName }}
@@ -39,8 +41,8 @@ spec:
         volumeMounts:
           - mountPath: /tmp
             name: terraform-data
-          - name: token
-            mountPath: /var/run/secrets/openshift.io/serviceaccount
+          - name: aws-jwt
+            mountPath: /var/run/secrets/tokens
             readOnly: true
         env:
         {{- range $key, $value := .Values.env }}

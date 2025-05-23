@@ -39,8 +39,8 @@ spec:
         volumeMounts:
           - mountPath: /tmp
             name: terraform-data
-          - mountPath: /var/run/secrets/kubernetes.io/serviceaccount/token
-            name: token
+          - name: token
+            mountPath: /var/run/secrets/openshift.io/serviceaccount
             readOnly: true
         env:
         {{- range $key, $value := .Values.env }}

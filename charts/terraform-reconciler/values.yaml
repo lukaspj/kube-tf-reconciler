@@ -12,5 +12,5 @@ imagePullSecrets: []
 env:
   KREC_NAMESPACE: "terraform-reconciler"
   KREC_WORKSPACE_PATH: "/tmp/workspaces"
-  AWS_WEB_IDENTITY_TOKEN_FILE: /var/run/secrets/kubernetes.io/serviceaccount/token
+  AWS_WEB_IDENTITY_TOKEN_FILE: /var/run/secrets/openshift.io/serviceaccount/token
 

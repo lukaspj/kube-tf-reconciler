@@ -23,6 +23,13 @@ spec:
       volumes:
         - name: terraform-data
           emptyDir: {}
+        - name: aws-jwt
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: aws-jwt
+                  expirationSeconds: 7200
+
       containers:
       - name: {{ .Values.appName }}
         image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
@@ -33,6 +40,9 @@ spec:
         volumeMounts:
           - mountPath: /tmp
             name: terraform-data
+          - name: aws-jwt
+            mountPath: /var/run/secrets/tokens
+            readOnly: true
         env:
         {{- range $key, $value := .Values.env }}
         - name: {{ $key }}

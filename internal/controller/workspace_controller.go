@@ -251,14 +251,16 @@ func (r *WorkspaceReconciler) getEnvsForExecution(ctx context.Context, ws tfreco
 
 	// Handle AWS authentication with service account tokens
 	if ws.Spec.Authentication != nil {
-		if ws.Spec.Authentication.AWS != nil && ws.Spec.Authentication.AWS.ServiceAccountName != "" {
-			tempTokenPath, err := r.setupAWSAuthentication(ctx, ws)
-			if err != nil {
-				return nil, fmt.Errorf("failed to setup AWS authentication: %w", err)
-			}
+		if ws.Spec.Authentication.AWS != nil {
+			if ws.Spec.Authentication.AWS.ServiceAccountName == "" || ws.Spec.Authentication.AWS.RoleARN == "" {
+				tempTokenPath, err := r.setupAWSAuthentication(ctx, ws)
+				if err != nil {
+					return nil, fmt.Errorf("failed to setup AWS authentication: %w", err)
+				}
 
-			envs["AWS_WEB_IDENTITY_TOKEN_FILE"] = tempTokenPath
-			envs["AWS_ROLE_ARN"] = ws.Spec.Authentication.AWS.RoleARN
+				envs["AWS_WEB_IDENTITY_TOKEN_FILE"] = tempTokenPath
+				envs["AWS_ROLE_ARN"] = ws.Spec.Authentication.AWS.RoleARN
+			}
 		}
 	}
 

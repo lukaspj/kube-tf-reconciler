@@ -22,13 +22,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	TFErrEventReason   = "TerraformError"
-	TFPlanEventReason  = "TerraformPlan"
-	TFApplyEventReason = "TerraformApply"
+	TFErrEventReason     = "TerraformError"
+	TFPlanEventReason    = "TerraformPlan"
+	TFApplyEventReason   = "TerraformApply"
+	TFDestroyEventReason = "TerraformDestroy"
+
+	// Finalizer name
+	workspaceFinalizer = "tf-reconcile.lukaspj.io/finalizer"
 )
 
 // WorkspaceReconciler reconciles a Workspace object
@@ -122,6 +127,35 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	err = r.Client.Status().Update(ctx, &ws)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update workspace status %s: %w", req.String(), err)
+	}
+
+	if !ws.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(&ws, workspaceFinalizer) {
+			err = tf.Destroy(ctx)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to destroy resource: %w", err)
+			}
+
+			r.Recorder.Eventf(&ws, v1.EventTypeNormal, TFDestroyEventReason, "Successfully destroyed resources")
+
+			controllerutil.RemoveFinalizer(&ws, workspaceFinalizer)
+			if err := r.Update(ctx, &ws); err != nil {
+				return ctrl.Result{}, err
+			}
+			ws.Status.ObservedGeneration = ws.Generation
+			return ctrl.Result{}, r.Client.Status().Update(ctx, &ws)
+
+		}
+		// Stop reconciliation as resource is being deleted
+		return ctrl.Result{}, nil
+	}
+
+	if !controllerutil.ContainsFinalizer(&ws, workspaceFinalizer) {
+		controllerutil.AddFinalizer(&ws, workspaceFinalizer)
+		if err := r.Update(ctx, &ws); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	changed, err := tf.Plan(ctx, tfexec.Out("plan.out"))

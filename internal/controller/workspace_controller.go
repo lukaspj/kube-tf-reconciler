@@ -9,10 +9,12 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
+	authv1 "k8s.io/api/authentication/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
 	"lukaspj.io/kube-tf-reconciler/pkg/render"
@@ -64,6 +66,15 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		err = fmt.Errorf("failed to get envs for execution: %w", err)
 		r.Recorder.Eventf(&ws, v1.EventTypeWarning, TFErrEventReason, err.Error())
 		return ctrl.Result{}, err
+	}
+
+	// Clean up temporary token file at the end of reconciliation
+	if tempTokenPath, exists := envs["AWS_WEB_IDENTITY_TOKEN_FILE"]; exists {
+		defer func() {
+			if err := os.Remove(tempTokenPath); err != nil {
+				log.Error(err, "failed to cleanup temp token file", "file", tempTokenPath)
+			}
+		}()
 	}
 
 	tf, terraformRCPath, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
@@ -238,5 +249,56 @@ func (r *WorkspaceReconciler) getEnvsForExecution(ctx context.Context, ws tfreco
 		}
 	}
 
+	// Handle AWS authentication with service account tokens
+	if ws.Spec.Authentication != nil {
+		if ws.Spec.Authentication.AWS != nil {
+			if ws.Spec.Authentication.AWS.ServiceAccountName == "" || ws.Spec.Authentication.AWS.RoleARN == "" {
+				tempTokenPath, err := r.setupAWSAuthentication(ctx, ws)
+				if err != nil {
+					return nil, fmt.Errorf("failed to setup AWS authentication: %w", err)
+				}
+
+				envs["AWS_WEB_IDENTITY_TOKEN_FILE"] = tempTokenPath
+				envs["AWS_ROLE_ARN"] = ws.Spec.Authentication.AWS.RoleARN
+			}
+		}
+	}
+
 	return envs, nil
+}
+
+func (r *WorkspaceReconciler) setupAWSAuthentication(ctx context.Context, ws tfreconcilev1alpha1.Workspace) (string, error) {
+	var sa v1.ServiceAccount
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Namespace: ws.Namespace,
+		Name:      ws.Spec.Authentication.AWS.ServiceAccountName,
+	}, &sa)
+	if err != nil {
+		return "", fmt.Errorf("failed to get service account %s in namespace %s: %w",
+			ws.Spec.Authentication.AWS.ServiceAccountName, ws.Namespace, err)
+	}
+
+	tokenRequest := &authv1.TokenRequest{
+		Spec: authv1.TokenRequestSpec{
+			ExpirationSeconds: func(i int64) *int64 { return &i }(600),
+		},
+	}
+
+	err = r.Client.SubResource("token").Create(ctx, &sa, tokenRequest)
+	if err != nil {
+		return "", fmt.Errorf("failed to create token for service account %s: %w",
+			ws.Spec.Authentication.AWS.ServiceAccountName, err)
+	}
+	tokenFile, err := os.CreateTemp("", fmt.Sprintf("aws-token-%s-%s-*", ws.Namespace, ws.Name))
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp token file: %w", err)
+	}
+	defer tokenFile.Close()
+
+	if _, err := tokenFile.Write([]byte(tokenRequest.Status.Token)); err != nil {
+		os.Remove(tokenFile.Name())
+		return "", fmt.Errorf("failed to write token to temp file: %w", err)
+	}
+
+	return tokenFile.Name(), nil
 }

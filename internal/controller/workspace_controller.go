@@ -115,11 +115,6 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("failed to init workspace: %w", err)
 	}
 
-	err = tf.Init(ctx, tfexec.Upgrade(true))
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to init workspace: %w", err)
-	}
-
 	valResult, err := tf.Validate(ctx)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to validate workspace: %w", err)

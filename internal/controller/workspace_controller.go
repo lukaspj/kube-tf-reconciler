@@ -86,6 +86,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	envs["HOME"] = os.Getenv("HOME")
 	envs["PATH"] = os.Getenv("PATH")
+	envs["TF_PLUGIN_CACHE_DIR"] = r.Tf.PluginCacheDir
 
 	if terraformRCPath != "" {
 		envs["TF_CLI_CONFIG_FILE"] = terraformRCPath

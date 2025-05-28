@@ -151,12 +151,5 @@ func (e *Exec) GetTerraformForWorkspace(ctx context.Context, ws tfreconcilev1alp
 		return nil, "", fmt.Errorf("failed to create terraform instance: %w", err)
 	}
 
-	err = tf.SetEnv(map[string]string{
-		"TF_PLUGIN_CACHE_DIR": e.PluginCacheDir,
-	})
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to set plugin cache dir: %w", err)
-	}
-
 	return tf, terraformRCPath, nil
 }

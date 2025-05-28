@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/hc-install/releases"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Exec struct {
@@ -91,17 +92,23 @@ func (e *Exec) SetupTerraformRC(workspacePath string, terraformRCContent string)
 }
 
 func (e *Exec) TerraformInit(ctx context.Context, tf *tfexec.Terraform, opts ...tfexec.InitOption) error {
+	log := logf.FromContext(ctx)
+	log.Info("Initializing Terraform", "workspace", tf.WorkingDir(), "time", time.Now().Format(time.RFC3339))
 	e.providerInitMutex.Lock()
 	defer e.providerInitMutex.Unlock()
+	defer log.Info("Terraform initialization completed", "workspace", tf.WorkingDir(), "time", time.Now().Format(time.RFC3339))
 	return tf.Init(ctx, opts...)
 }
 
 func (e *Exec) getTerraformBinary(ctx context.Context, terraformVersion string) (string, error) {
+	log := logf.FromContext(ctx)
+	log.Info("Checking for existing Terraform binary", "version", terraformVersion, "time", time.Now().Format(time.RFC3339))
 	e.terraformInstallMutex.RLock()
 	if execPath, exists := e.terraformInstalledVersions[terraformVersion]; exists {
 		e.terraformInstallMutex.RUnlock()
 		// Verify the binary still exists
 		if _, err := os.Stat(execPath); err == nil {
+			log.Info("Using cached Terraform binary", "version", terraformVersion, "path", time.Now().Format(time.RFC3339))
 			return execPath, nil
 		}
 		// Binary was deleted, remove from cache
@@ -131,6 +138,7 @@ func (e *Exec) getTerraformBinary(ctx context.Context, terraformVersion string) 
 	e.terraformInstalledVersions[terraformVersion] = execPath
 	e.terraformInstallMutex.Unlock()
 
+	log.Info("Installed Terraform binary", "version", terraformVersion, "time", time.Now().Format(time.RFC3339))
 	return execPath, nil
 }
 

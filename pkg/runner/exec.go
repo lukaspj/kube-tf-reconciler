@@ -23,6 +23,7 @@ type Exec struct {
 
 	terraformInstalledVersions map[string]string
 	terraformInstallMutex      sync.RWMutex
+	providerInitMutex          sync.Mutex
 }
 
 func New(rootDir string) *Exec {
@@ -87,6 +88,12 @@ func (e *Exec) SetupTerraformRC(workspacePath string, terraformRCContent string)
 	}
 
 	return terraformRCPath, nil
+}
+
+func (e *Exec) TerraformInit(ctx context.Context, tf *tfexec.Terraform, opts ...tfexec.InitOption) error {
+	e.providerInitMutex.Lock()
+	defer e.providerInitMutex.Unlock()
+	return tf.Init(ctx, opts...)
 }
 
 func (e *Exec) getTerraformBinary(ctx context.Context, terraformVersion string) (string, error) {

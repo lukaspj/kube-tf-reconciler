@@ -110,6 +110,11 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("failed to update workspace status %s: %w", req.String(), err)
 	}
 
+	err = r.Tf.TerraformInit(ctx, tf, tfexec.Upgrade(true))
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to init workspace: %w", err)
+	}
+
 	err = tf.Init(ctx, tfexec.Upgrade(true))
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to init workspace: %w", err)

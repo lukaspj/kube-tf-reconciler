@@ -3,7 +3,7 @@ namespace: "terraform-reconciler"
 
 image:
   repository: ghcr.io/lukaspj/kube-tf-reconciler/kube-tf-reconciler
-  tag: sha-d549f8b
+  tag: sha-cfe766f
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -12,3 +12,5 @@ imagePullSecrets: []
 env:
   KREC_NAMESPACE: "terraform-reconciler"
   KREC_WORKSPACE_PATH: "/tmp/workspaces"
+  AWS_WEB_IDENTITY_TOKEN_FILE: /var/run/secrets/tokens/aws-jwt
+

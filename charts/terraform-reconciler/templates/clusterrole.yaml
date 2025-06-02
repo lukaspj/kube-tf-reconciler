@@ -22,3 +22,15 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
+
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenrequests"]
+    verbs: ["create"]

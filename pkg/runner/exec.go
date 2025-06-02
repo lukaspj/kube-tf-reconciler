@@ -13,7 +13,6 @@ import (
 	"github.com/hashicorp/hc-install/releases"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfreconcilev1alpha1 "lukaspj.io/kube-tf-reconciler/api/v1alpha1"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Exec struct {
@@ -92,46 +91,17 @@ func (e *Exec) SetupTerraformRC(workspacePath string, terraformRCContent string)
 }
 
 func (e *Exec) TerraformInit(ctx context.Context, tf *tfexec.Terraform, opts ...tfexec.InitOption) error {
-	log := logf.FromContext(ctx)
-
-	// Check cache before init
-	if entries, err := os.ReadDir(e.PluginCacheDir); err == nil {
-		log.Info("plugin cache before init", "cached_items", len(entries))
-		for _, entry := range entries[:min(5, len(entries))] { // Log first 5
-			if info, err := entry.Info(); err == nil {
-				log.Info("cached provider", "name", entry.Name(), "size", info.Size(), "modified", info.ModTime())
-			}
-		}
-	}
-
-	log.Info("Initializing Terraform", "workspace", tf.WorkingDir(), "cache_dir", e.PluginCacheDir, "time", time.Now().Format(time.RFC3339))
-
 	e.providerInitMutex.Lock()
 	defer e.providerInitMutex.Unlock()
-
-	start := time.Now()
 	err := tf.Init(ctx, opts...)
-	duration := time.Since(start)
-
-	log.Info("Terraform initialization completed", "workspace", tf.WorkingDir(), "duration", duration, "time", time.Now().Format(time.RFC3339))
-
-	// Check if provider was re-downloaded
-	awsProviderPath := filepath.Join(e.PluginCacheDir, "registry.terraform.io/hashicorp/aws/5.98.0/linux_amd64/terraform-provider-aws_v5.98.0_x5")
-	if info, err := os.Stat(awsProviderPath); err == nil {
-		log.Info("AWS provider after init", "modified", info.ModTime(), "size", info.Size())
-	}
-
 	return err
 }
 func (e *Exec) getTerraformBinary(ctx context.Context, terraformVersion string) (string, error) {
-	log := logf.FromContext(ctx)
-	log.Info("Checking for existing Terraform binary", "version", terraformVersion, "time", time.Now().Format(time.RFC3339))
 	e.terraformInstallMutex.Lock()
 	defer e.terraformInstallMutex.Unlock()
 	if execPath, exists := e.terraformInstalledVersions[terraformVersion]; exists {
 		// Verify the binary still exists
 		if _, err := os.Stat(execPath); err == nil {
-			log.Info("Found existing Terraform binary", "version", terraformVersion, "path", time.Now().Format(time.RFC3339))
 			return execPath, nil
 		}
 		// If it doesn't exist or was deleted, remove from cache
@@ -152,7 +122,6 @@ func (e *Exec) getTerraformBinary(ctx context.Context, terraformVersion string) 
 	}
 
 	e.terraformInstalledVersions[terraformVersion] = execPath
-	log.Info("Installed Terraform binary", "version", terraformVersion, "time", time.Now().Format(time.RFC3339))
 	return execPath, nil
 }
 

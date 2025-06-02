@@ -91,6 +91,8 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	envs["HOME"] = os.Getenv("HOME")
 	envs["PATH"] = os.Getenv("PATH")
+	envs["TF_PLUGIN_CACHE_DIR"] = r.Tf.PluginCacheDir
+	envs["TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE"] = "true"
 
 	if terraformRCPath != "" {
 		envs["TF_CLI_CONFIG_FILE"] = terraformRCPath
@@ -114,7 +116,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("failed to update workspace status %s: %w", req.String(), err)
 	}
 
-	err = tf.Init(ctx, tfexec.Upgrade(true))
+	err = r.Tf.TerraformInit(ctx, tf)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to init workspace: %w", err)
 	}
@@ -286,7 +288,7 @@ func (r *WorkspaceReconciler) getEnvsForExecution(ctx context.Context, ws tfreco
 	// Handle AWS authentication with service account tokens
 	if ws.Spec.Authentication != nil {
 		if ws.Spec.Authentication.AWS != nil {
-			if ws.Spec.Authentication.AWS.ServiceAccountName == "" || ws.Spec.Authentication.AWS.RoleARN == "" {
+			if ws.Spec.Authentication.AWS.ServiceAccountName != "" || ws.Spec.Authentication.AWS.RoleARN != "" {
 				tempTokenPath, err := r.setupAWSAuthentication(ctx, ws)
 				if err != nil {
 					return nil, fmt.Errorf("failed to setup AWS authentication: %w", err)

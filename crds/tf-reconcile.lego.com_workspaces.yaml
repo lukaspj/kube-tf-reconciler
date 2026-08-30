@@ -265,6 +265,17 @@ spec:
                 required:
                 - env
                 type: object
+              tofuVersion:
+                description: TofuVersion is the version of OpenTofu to use, required
+                  when Tool is opentofu
+                type: string
+              tool:
+                default: terraform
+                description: Tool is the IaC tool to use, either terraform or opentofu
+                enum:
+                - terraform
+                - opentofu
+                type: string
             required:
             - autoApply
             - backend

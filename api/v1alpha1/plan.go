@@ -34,6 +34,16 @@ type PlanSpec struct {
 	// +kubebuilder:validation:Required
 	TerraformVersion string `json:"terraformVersion"`
 
+	// Tool is the IaC tool to use for this plan
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=terraform
+	// +kubebuilder:validation:Enum=terraform;opentofu
+	Tool Tool `json:"tool,omitempty"`
+
+	// TofuVersion is the version of OpenTofu to use for this plan
+	// +kubebuilder:validation:Optional
+	TofuVersion string `json:"tofuVersion,omitempty"`
+
 	// Render is the HCL content that will be planned
 	// +kubebuilder:validation:Required
 	Render string `json:"render"`

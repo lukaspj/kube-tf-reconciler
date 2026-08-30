@@ -72,6 +72,17 @@ spec:
                 description: TerraformVersion is the version of terraform to use for
                   this plan
                 type: string
+              tofuVersion:
+                description: TofuVersion is the version of OpenTofu to use for this
+                  plan
+                type: string
+              tool:
+                default: terraform
+                description: Tool is the IaC tool to use for this plan
+                enum:
+                - terraform
+                - opentofu
+                type: string
               workspaceRef:
                 description: WorkspaceRef is a reference to the Workspace that owns
                   this Plan

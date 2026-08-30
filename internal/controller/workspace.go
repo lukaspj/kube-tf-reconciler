@@ -19,7 +19,6 @@ import (
 	"github.com/LEGO/kube-tf-reconciler/pkg/metrics"
 	"github.com/LEGO/kube-tf-reconciler/pkg/render"
 	"github.com/LEGO/kube-tf-reconciler/pkg/runner"
-	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	authv1 "k8s.io/api/authentication/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
@@ -177,7 +176,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Record reconciliation attempt
 	metrics.RecordReconciliation(ws.Namespace, ws.Name)
 
-	res, err, ret, tf := r.setupTerraformForWorkspace(ctx, ws)
+	res, err, ret, tool := r.setupTerraformForWorkspace(ctx, ws)
 	if ret {
 		if err != nil {
 			err = fmt.Errorf("setupTerraformForWorkspace: %w", err)
@@ -196,7 +195,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return res, err
 	}
 
-	if res, err, ret = r.handleRefreshDependencies(ctx, ws, tf); ret {
+	if res, err, ret = r.handleRefreshDependencies(ctx, ws, tool); ret {
 		if err != nil {
 			err = fmt.Errorf("handleRefreshDependencies: %w", err)
 			r.backoff(ctx, ws)
@@ -205,7 +204,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return res, err
 	}
 
-	if res, err, ret = r.handleDeletionAndFinalizers(ctx, ws, tf); ret {
+	if res, err, ret = r.handleDeletionAndFinalizers(ctx, ws, tool); ret {
 		if err != nil {
 			err = fmt.Errorf("handleDeletionAndFinalizers: %w", err)
 			r.backoff(ctx, ws)
@@ -214,7 +213,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return res, err
 	}
 
-	if res, err, ret = r.handlePlan(ctx, ws, tf); ret {
+	if res, err, ret = r.handlePlan(ctx, ws, tool); ret {
 		if err != nil {
 			err = fmt.Errorf("handlePlan: %w", err)
 			r.backoff(ctx, ws)
@@ -223,7 +222,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return res, err
 	}
 
-	if res, err, ret = r.handleApply(ctx, ws, tf); ret {
+	if res, err, ret = r.handleApply(ctx, ws, tool); ret {
 		if err != nil {
 			err = fmt.Errorf("handleApply: %w", err)
 			r.backoff(ctx, ws)
@@ -273,7 +272,7 @@ func (r *WorkspaceReconciler) handleRendering(ctx context.Context, ws *tfv1alpha
 	return ctrl.Result{}, nil, false
 }
 
-func (r *WorkspaceReconciler) handleRefreshDependencies(ctx context.Context, ws *tfv1alphav1.Workspace, tf *tfexec.Terraform) (ctrl.Result, error, bool) {
+func (r *WorkspaceReconciler) handleRefreshDependencies(ctx context.Context, ws *tfv1alphav1.Workspace, tool runner.IaCTool) (ctrl.Result, error, bool) {
 	log := logf.FromContext(ctx)
 
 	_ = r.updateWorkspaceStatus(ctx, ws, TFPhaseInitializing, "Initializing Terraform workspace", func(s *tfv1alphav1.WorkspaceStatus) {
@@ -292,10 +291,10 @@ func (r *WorkspaceReconciler) handleRefreshDependencies(ctx context.Context, ws 
 		ws.Status.InitOutput = output
 	})
 
-	err := r.Tf.TerraformInit(ctx, tf, func(stdout, stderr string) {
+	err := r.Tf.TerraformInit(ctx, tool, func(stdout, stderr string) {
 		output, _ := constructOutput(stdout, stderr, nil)
 		initOutputCh <- output
-	}, tfexec.Upgrade(true))
+	}, runner.WithUpgrade())
 
 	close(initOutputCh)
 	wg.Wait()
@@ -307,7 +306,7 @@ func (r *WorkspaceReconciler) handleRefreshDependencies(ctx context.Context, ws 
 		return ctrl.Result{}, err, true
 	}
 
-	valResult, err := tf.Validate(ctx)
+	valResult, err := tool.Validate(ctx)
 	if err != nil {
 		log.Error(err, "failed to validate terraform", "workspace", ws.Name)
 		err = fmt.Errorf("terraform validate failed: %w", err)
@@ -408,7 +407,7 @@ func (r *WorkspaceReconciler) handleRefreshDependencies(ctx context.Context, ws 
 	return ctrl.Result{}, nil, false
 }
 
-func (r *WorkspaceReconciler) handlePlan(ctx context.Context, ws *tfv1alphav1.Workspace, tf *tfexec.Terraform) (ctrl.Result, error, bool) {
+func (r *WorkspaceReconciler) handlePlan(ctx context.Context, ws *tfv1alphav1.Workspace, tool runner.IaCTool) (ctrl.Result, error, bool) {
 	log := logf.FromContext(ctx)
 
 	// Don't plan deleted workspaces
@@ -444,7 +443,7 @@ func (r *WorkspaceReconciler) handlePlan(ctx context.Context, ws *tfv1alphav1.Wo
 		ws.Status.LastPlanOutput = output
 	})
 
-	changed, planOutput, err := r.executeTerraformPlan(ctx, tf, false, func(stdout, stderr string) {
+	changed, planOutput, err := r.executeTerraformPlan(ctx, tool, false, func(stdout, stderr string) {
 		output, _ := constructOutput(stdout, stderr, nil)
 		planOutputCh <- output
 	})
@@ -498,7 +497,7 @@ func (r *WorkspaceReconciler) handlePlan(ctx context.Context, ws *tfv1alphav1.Wo
 	return ctrl.Result{}, nil, false
 }
 
-func (r *WorkspaceReconciler) handleApply(ctx context.Context, ws *tfv1alphav1.Workspace, tf *tfexec.Terraform) (ctrl.Result, error, bool) {
+func (r *WorkspaceReconciler) handleApply(ctx context.Context, ws *tfv1alphav1.Workspace, tool runner.IaCTool) (ctrl.Result, error, bool) {
 	log := logf.FromContext(ctx)
 
 	// Don't apply deleted workspaces
@@ -535,7 +534,7 @@ func (r *WorkspaceReconciler) handleApply(ctx context.Context, ws *tfv1alphav1.W
 			ws.Status.LastApplyOutput = output
 		})
 
-		applyOutput, err := r.executeTerraformApply(ctx, tf, false, func(stdout, stderr string) {
+		applyOutput, err := r.executeTerraformApply(ctx, tool, false, func(stdout, stderr string) {
 			output, _ := constructOutput(stdout, stderr, nil)
 			applyOutputCh <- output
 		})
@@ -590,7 +589,7 @@ func (r *WorkspaceReconciler) handleApply(ctx context.Context, ws *tfv1alphav1.W
 	return ctrl.Result{}, nil, false
 }
 
-func (r *WorkspaceReconciler) setupTerraformForWorkspace(ctx context.Context, ws *tfv1alphav1.Workspace) (ctrl.Result, error, bool, *tfexec.Terraform) {
+func (r *WorkspaceReconciler) setupTerraformForWorkspace(ctx context.Context, ws *tfv1alphav1.Workspace) (ctrl.Result, error, bool, runner.IaCTool) {
 	log := logf.FromContext(ctx)
 	defer log.V(DebugLevel).Info("setup terraform completed")
 	log.V(DebugLevel).Info("setup terraform starting")
@@ -609,7 +608,7 @@ func (r *WorkspaceReconciler) setupTerraformForWorkspace(ctx context.Context, ws
 		return ctrl.Result{}, err, true, nil
 	}
 
-	tf, terraformRCPath, err := r.Tf.GetTerraformForWorkspace(ctx, ws)
+	tool, terraformRCPath, err := r.Tf.GetIaCToolForWorkspace(ctx, ws)
 	if err != nil {
 		r.Recorder.Eventf(ws, v1.EventTypeWarning, TFErrEventReason, "Failed to get terraform executable: %v", err)
 		_ = r.updateWorkspaceStatus(ctx, ws, TFPhaseErrored, fmt.Sprintf("Failed to get terraform executable: %v", err), nil)
@@ -625,17 +624,17 @@ func (r *WorkspaceReconciler) setupTerraformForWorkspace(ctx context.Context, ws
 		envs["TF_CLI_CONFIG_FILE"] = terraformRCPath
 	}
 
-	err = tf.SetEnv(envs)
+	err = tool.SetEnv(envs)
 	if err != nil {
 		r.Recorder.Eventf(ws, v1.EventTypeWarning, TFErrEventReason, "Failed to set terraform env: %v", err)
 		_ = r.updateWorkspaceStatus(ctx, ws, TFPhaseErrored, fmt.Sprintf("Failed to set terraform env: %v", err), nil)
 		return ctrl.Result{}, err, true, nil
 	}
 
-	return ctrl.Result{}, nil, false, tf
+	return ctrl.Result{}, nil, false, tool
 }
 
-func (r *WorkspaceReconciler) handleDeletionAndFinalizers(ctx context.Context, ws *tfv1alphav1.Workspace, tf *tfexec.Terraform) (ctrl.Result, error, bool) {
+func (r *WorkspaceReconciler) handleDeletionAndFinalizers(ctx context.Context, ws *tfv1alphav1.Workspace, tool runner.IaCTool) (ctrl.Result, error, bool) {
 	log := logf.FromContext(ctx)
 
 	if ws.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(ws, tfv1alphav1.WorkspaceFinalizer) {
@@ -670,7 +669,7 @@ func (r *WorkspaceReconciler) handleDeletionAndFinalizers(ctx context.Context, w
 	if ws.Spec.Destroy == tfv1alphav1.DestroyBehaviourAuto ||
 		ws.Spec.Destroy == tfv1alphav1.DestroyBehaviourManual ||
 		ws.Spec.Destroy == "" && !ws.Spec.PreventDestroy {
-		err := tf.Destroy(ctx)
+		err := tool.Destroy(ctx)
 		if err != nil {
 			r.Recorder.Eventf(ws, v1.EventTypeWarning, TFDestroyEventReason, "Failed to destroy terraform resources: %v", err)
 			return ctrl.Result{}, fmt.Errorf("failed to destroy terraform resources: %w", err), true
@@ -750,19 +749,19 @@ func (r *WorkspaceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Man
 		Complete(r)
 }
 
-func (r *WorkspaceReconciler) executeTerraformPlan(ctx context.Context, tf *tfexec.Terraform, destroy bool, cb func(stdout, stderr string)) (bool, string, error) {
+func (r *WorkspaceReconciler) executeTerraformPlan(ctx context.Context, tool runner.IaCTool, destroy bool, cb func(stdout, stderr string)) (bool, string, error) {
 	var changed bool
 	var err error
 
-	runner.WithOutputStream(ctx, tf, func() {
-		changed, err = tf.Plan(ctx, tfexec.Destroy(destroy), tfexec.Out("plan.out"))
+	runner.WithOutputStream(ctx, tool, func() {
+		changed, err = tool.Plan(ctx, runner.WithDestroy(destroy), runner.WithOut("plan.out"))
 	}, cb)
 
 	if err != nil {
 		return false, "", fmt.Errorf("failed to plan terraform: %w", err)
 	}
 
-	planOutput, err := tf.ShowPlanFileRaw(ctx, "plan.out")
+	planOutput, err := tool.ShowPlanFileRaw(ctx, "plan.out")
 	if err != nil {
 		return false, "", fmt.Errorf("failed to show plan file: %w", err)
 	}
@@ -771,14 +770,14 @@ func (r *WorkspaceReconciler) executeTerraformPlan(ctx context.Context, tf *tfex
 }
 
 // executeTerraformApply executes terraform apply or destroy command
-func (r *WorkspaceReconciler) executeTerraformApply(ctx context.Context, tf *tfexec.Terraform, destroy bool, cb func(stdout, stderr string)) (string, error) {
+func (r *WorkspaceReconciler) executeTerraformApply(ctx context.Context, tool runner.IaCTool, destroy bool, cb func(stdout, stderr string)) (string, error) {
 	var stdout, stderr string
 	var err error
-	runner.WithOutputStream(ctx, tf, func() {
+	runner.WithOutputStream(ctx, tool, func() {
 		if destroy {
-			err = tf.Destroy(ctx)
+			err = tool.Destroy(ctx)
 		} else {
-			err = tf.Apply(ctx)
+			err = tool.Apply(ctx)
 		}
 	}, func(so, se string) {
 		stdout = so
@@ -884,6 +883,8 @@ func (r *WorkspaceReconciler) createPlanRecord(ctx context.Context, ws *tfv1alph
 			},
 			AutoApply:        ws.Spec.AutoApply,
 			TerraformVersion: ws.Spec.TerraformVersion,
+			Tool:             ws.Spec.Tool,
+			TofuVersion:      ws.Spec.TofuVersion,
 			Render:           ws.Status.CurrentRender,
 			Destroy:          destroy,
 		},

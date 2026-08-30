@@ -168,9 +168,9 @@ type AuthenticationSpec struct {
 
 // WorkspaceSpec defines the desired state of Workspace.
 type WorkspaceSpec struct {
-	// TerraformVersion is the version of terraform to use
-	// +kubebuilder:validation:Required
-	TerraformVersion string `json:"terraformVersion"`
+	// TerraformVersion is the version of terraform to use, required when Tool is terraform
+	// +kubebuilder:validation:Optional
+	TerraformVersion string `json:"terraformVersion,omitempty"`
 
 	// Tool is the IaC tool to use, either terraform or opentofu
 	// +kubebuilder:validation:Optional

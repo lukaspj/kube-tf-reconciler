@@ -208,7 +208,8 @@ spec:
                   file
                 type: string
               terraformVersion:
-                description: TerraformVersion is the version of terraform to use
+                description: TerraformVersion is the version of terraform to use,
+                  required when Tool is terraform
                 type: string
               tf:
                 description: TFExec is the terraform execution configuration
@@ -282,7 +283,6 @@ spec:
             - destroy
             - module
             - providerSpecs
-            - terraformVersion
             type: object
           status:
             description: WorkspaceStatus defines the observed state of Workspace.

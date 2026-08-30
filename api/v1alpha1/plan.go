@@ -31,8 +31,8 @@ type PlanSpec struct {
 	AutoApply bool `json:"autoApply"`
 
 	// TerraformVersion is the version of terraform to use for this plan
-	// +kubebuilder:validation:Required
-	TerraformVersion string `json:"terraformVersion"`
+	// +kubebuilder:validation:Optional
+	TerraformVersion string `json:"terraformVersion,omitempty"`
 
 	// Tool is the IaC tool to use for this plan
 	// +kubebuilder:validation:Optional

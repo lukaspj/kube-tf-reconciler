@@ -101,7 +101,6 @@ spec:
             - autoApply
             - destroy
             - render
-            - terraformVersion
             - workspaceRef
             type: object
           status:

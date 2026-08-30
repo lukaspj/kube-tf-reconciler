@@ -146,10 +146,14 @@ func (e *Exec) getTerraformBinary(ctx context.Context, terraformVersion string) 
 	}
 
 	// Not installed or missing — do the install
+	tfVersion, err := version.NewVersion(terraformVersion)
+	if err != nil {
+		return "", fmt.Errorf("invalid terraform version %q: %w", terraformVersion, err)
+	}
 	installer := &releases.ExactVersion{
 		Product:    product.Terraform,
 		InstallDir: installDir,
-		Version:    version.Must(version.NewVersion(terraformVersion)),
+		Version:    tfVersion,
 	}
 	installer.Timeout = 2 * time.Minute
 
@@ -218,11 +222,16 @@ func (e *Exec) GetIaCToolForWorkspace(ctx context.Context, ws *tfreconcilev1alph
 	}
 
 	iacVersion := ws.Spec.TerraformVersion
-	if tool == tfreconcilev1alpha1.ToolOpenTofu {
+	switch tool {
+	case tfreconcilev1alpha1.ToolOpenTofu:
 		if ws.Spec.TofuVersion == "" {
 			return nil, "", fmt.Errorf("tofuVersion is required when tool is opentofu")
 		}
 		iacVersion = ws.Spec.TofuVersion
+	case tfreconcilev1alpha1.ToolTerraform:
+		if ws.Spec.TerraformVersion == "" {
+			return nil, "", fmt.Errorf("terraformVersion is required when tool is terraform")
+		}
 	}
 
 	execPath, err := e.getBinary(ctx, tool, iacVersion)

@@ -192,4 +192,13 @@ func TestGetIaCToolForWorkspaceValidation(t *testing.T) {
 	ws.Spec.TofuVersion = "1.9.0"
 	_, _, err = e.GetIaCToolForWorkspace(ctx, ws)
 	assert.ErrorContains(t, err, "unsupported IaC tool")
+
+	terraformWs := &tfreconcilev1alpha1.Workspace{
+		ObjectMeta: v1.ObjectMeta{Name: "ws", Namespace: "ns"},
+		Spec: tfreconcilev1alpha1.WorkspaceSpec{
+			Tool: tfreconcilev1alpha1.ToolTerraform,
+		},
+	}
+	_, _, err = e.GetIaCToolForWorkspace(ctx, terraformWs)
+	assert.ErrorContains(t, err, "terraformVersion is required when tool is terraform")
 }

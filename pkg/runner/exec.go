@@ -167,6 +167,7 @@ func (e *Exec) getTerraformBinary(ctx context.Context, terraformVersion string) 
 }
 
 func (e *Exec) getTofuBinary(ctx context.Context, tofuVersion string) (string, error) {
+	tofuVersion = strings.TrimPrefix(tofuVersion, "v")
 	e.installMutex.Lock()
 	defer e.installMutex.Unlock()
 	cacheKey := fmt.Sprintf("opentofu@%s", tofuVersion)

@@ -93,12 +93,18 @@ func TestMultipleVersions(t *testing.T) {
 	ctx := t.Context()
 
 	tests := []struct {
-		name      string
-		tool      tfreconcilev1alpha1.Tool
-		versions  []string
+		name     string
+		tool     tfreconcilev1alpha1.Tool
+		versions []struct{ input, want string }
 	}{
-		{"terraform", tfreconcilev1alpha1.ToolTerraform, []string{"1.11.2", "1.14.3"}},
-		{"tofu", tfreconcilev1alpha1.ToolOpenTofu, []string{"1.8.3", "1.9.0"}},
+		{"terraform", tfreconcilev1alpha1.ToolTerraform, []struct{ input, want string }{
+			{"1.11.2", "1.11.2"},
+			{"1.14.3", "1.14.3"},
+		}},
+		{"tofu", tfreconcilev1alpha1.ToolOpenTofu, []struct{ input, want string }{
+			{"1.8.3", "1.8.3"},
+			{"v1.9.0", "1.9.0"},
+		}},
 	}
 
 	for _, tt := range tests {
@@ -106,8 +112,8 @@ func TestMultipleVersions(t *testing.T) {
 			dir := t.TempDir()
 			e := New(dir)
 
-			for _, wantVersion := range tt.versions {
-				binary, err := e.getBinary(ctx, tt.tool, wantVersion)
+			for _, version := range tt.versions {
+				binary, err := e.getBinary(ctx, tt.tool, version.input)
 				require.NoError(t, err)
 
 				var got string
@@ -115,17 +121,17 @@ func TestMultipleVersions(t *testing.T) {
 				case tfreconcilev1alpha1.ToolTerraform:
 					tf, err := tfexec.NewTerraform(dir, binary)
 					require.NoError(t, err)
-					version, _, err := tf.Version(ctx, false)
+					v, _, err := tf.Version(ctx, false)
 					require.NoError(t, err)
-					got = version.String()
+					got = v.String()
 				case tfreconcilev1alpha1.ToolOpenTofu:
 					tofu, err := tofuexec.NewTofu(dir, binary)
 					require.NoError(t, err)
-					version, _, err := tofu.Version(ctx, false)
+					v, _, err := tofu.Version(ctx, false)
 					require.NoError(t, err)
-					got = version.String()
+					got = v.String()
 				}
-				assert.Equal(t, wantVersion, got)
+				assert.Equal(t, version.want, got)
 			}
 		})
 	}

@@ -180,6 +180,7 @@ func listWorkspacePlans(ctx context.Context, k8sClient client.Client, namespace,
 var allowedAnnotations = map[string]bool{
 	v1alpha1.ManualApplyAnnotation:   true,
 	v1alpha1.ManualDestroyAnnotation: true,
+	v1alpha1.ManualRetryAnnotation:   true,
 }
 
 // patchWorkspaceAnnotation sets or removes an annotation on a workspace.

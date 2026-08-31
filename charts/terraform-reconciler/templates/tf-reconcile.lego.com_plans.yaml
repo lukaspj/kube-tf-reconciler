@@ -69,12 +69,9 @@ spec:
                 description: Render is the HCL content that will be planned
                 type: string
               terraformVersion:
-                description: TerraformVersion is the version of terraform to use for
-                  this plan
-                type: string
-              tofuVersion:
-                description: TofuVersion is the version of OpenTofu to use for this
-                  plan
+                description: |-
+                  TerraformVersion is the version of terraform to use for this plan
+                  Deprecated: use ToolVersion instead
                 type: string
               tool:
                 default: terraform
@@ -82,6 +79,10 @@ spec:
                 enum:
                 - terraform
                 - opentofu
+                type: string
+              toolVersion:
+                description: ToolVersion is the version of the IaC tool to use for
+                  this plan
                 type: string
               workspaceRef:
                 description: WorkspaceRef is a reference to the Workspace that owns

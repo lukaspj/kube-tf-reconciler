@@ -12,6 +12,8 @@ import (
 // IaCTool abstracts the terraform/tofu CLI execution layer so the controller
 // can drive either implementation from a single interface.
 type IaCTool interface {
+	// Name returns the name of the underlying IaC tool (terraform or opentofu).
+	Name() string
 	Init(ctx context.Context, opts ...InitOption) error
 	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
 	Plan(ctx context.Context, opts ...PlanOption) (bool, error)
@@ -72,6 +74,10 @@ func NewTerraformTool(tf *tfexec.Terraform) *TerraformTool {
 	return &TerraformTool{tf: tf}
 }
 
+func (t *TerraformTool) Name() string {
+	return "terraform"
+}
+
 func (t *TerraformTool) Init(ctx context.Context, opts ...InitOption) error {
 	o := InitOptions{}
 	for _, opt := range opts {
@@ -129,6 +135,10 @@ var _ IaCTool = (*TofuTool)(nil)
 
 func NewTofuTool(tf *tofuexec.Tofu) *TofuTool {
 	return &TofuTool{tf: tf}
+}
+
+func (t *TofuTool) Name() string {
+	return "opentofu"
 }
 
 func (t *TofuTool) Init(ctx context.Context, opts ...InitOption) error {

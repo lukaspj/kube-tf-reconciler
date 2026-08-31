@@ -161,12 +161,22 @@ func TestGetIaCToolForWorkspaceToolSelection(t *testing.T) {
 			ws: &tfreconcilev1alpha1.Workspace{
 				ObjectMeta: v1.ObjectMeta{Name: "ws", Namespace: "ns"},
 				Spec: tfreconcilev1alpha1.WorkspaceSpec{
-					Tool:             tfreconcilev1alpha1.ToolOpenTofu,
-					TerraformVersion: "1.11.2",
-					TofuVersion:      "1.9.0",
+					Tool:        tfreconcilev1alpha1.ToolOpenTofu,
+					ToolVersion: "1.9.0",
 				},
 			},
 			expectedTool: (*TofuTool)(nil),
+		},
+		{
+			name: "uses toolVersion for terraform",
+			ws: &tfreconcilev1alpha1.Workspace{
+				ObjectMeta: v1.ObjectMeta{Name: "ws", Namespace: "ns"},
+				Spec: tfreconcilev1alpha1.WorkspaceSpec{
+					Tool:        tfreconcilev1alpha1.ToolTerraform,
+					ToolVersion: "1.11.2",
+				},
+			},
+			expectedTool: (*TerraformTool)(nil),
 		},
 	}
 
@@ -186,16 +196,16 @@ func TestGetIaCToolForWorkspaceValidation(t *testing.T) {
 	ws := &tfreconcilev1alpha1.Workspace{
 		ObjectMeta: v1.ObjectMeta{Name: "ws", Namespace: "ns"},
 		Spec: tfreconcilev1alpha1.WorkspaceSpec{
-			Tool:            tfreconcilev1alpha1.ToolOpenTofu,
+			Tool:             tfreconcilev1alpha1.ToolOpenTofu,
 			TerraformVersion: "1.11.2",
 		},
 	}
 
 	_, _, err := e.GetIaCToolForWorkspace(ctx, ws)
-	assert.ErrorContains(t, err, "tofuVersion is required when tool is opentofu")
+	assert.ErrorContains(t, err, "toolVersion is required when tool is opentofu")
 
 	ws.Spec.Tool = tfreconcilev1alpha1.Tool("unknown")
-	ws.Spec.TofuVersion = "1.9.0"
+	ws.Spec.ToolVersion = "1.9.0"
 	_, _, err = e.GetIaCToolForWorkspace(ctx, ws)
 	assert.ErrorContains(t, err, "unsupported IaC tool")
 
@@ -206,5 +216,5 @@ func TestGetIaCToolForWorkspaceValidation(t *testing.T) {
 		},
 	}
 	_, _, err = e.GetIaCToolForWorkspace(ctx, terraformWs)
-	assert.ErrorContains(t, err, "terraformVersion is required when tool is terraform")
+	assert.ErrorContains(t, err, "toolVersion is required when tool is terraform")
 }

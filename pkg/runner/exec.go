@@ -222,17 +222,13 @@ func (e *Exec) GetIaCToolForWorkspace(ctx context.Context, ws *tfreconcilev1alph
 		tool = tfreconcilev1alpha1.ToolTerraform
 	}
 
-	iacVersion := ws.Spec.TerraformVersion
-	switch tool {
-	case tfreconcilev1alpha1.ToolOpenTofu:
-		if ws.Spec.TofuVersion == "" {
-			return nil, "", fmt.Errorf("tofuVersion is required when tool is opentofu")
-		}
-		iacVersion = ws.Spec.TofuVersion
-	case tfreconcilev1alpha1.ToolTerraform:
-		if ws.Spec.TerraformVersion == "" {
-			return nil, "", fmt.Errorf("terraformVersion is required when tool is terraform")
-		}
+	iacVersion := ws.Spec.ToolVersion
+	if iacVersion == "" && tool == tfreconcilev1alpha1.ToolTerraform {
+		// backwards compatibility for the deprecated terraformVersion field
+		iacVersion = ws.Spec.TerraformVersion
+	}
+	if iacVersion == "" {
+		return nil, "", fmt.Errorf("toolVersion is required when tool is %s", tool)
 	}
 
 	execPath, err := e.getBinary(ctx, tool, iacVersion)

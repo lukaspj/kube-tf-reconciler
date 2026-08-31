@@ -31,6 +31,7 @@ type PlanSpec struct {
 	AutoApply bool `json:"autoApply"`
 
 	// TerraformVersion is the version of terraform to use for this plan
+	// Deprecated: use ToolVersion instead
 	// +kubebuilder:validation:Optional
 	TerraformVersion string `json:"terraformVersion,omitempty"`
 
@@ -40,9 +41,9 @@ type PlanSpec struct {
 	// +kubebuilder:validation:Enum=terraform;opentofu
 	Tool Tool `json:"tool,omitempty"`
 
-	// TofuVersion is the version of OpenTofu to use for this plan
+	// ToolVersion is the version of the IaC tool to use for this plan
 	// +kubebuilder:validation:Optional
-	TofuVersion string `json:"tofuVersion,omitempty"`
+	ToolVersion string `json:"toolVersion,omitempty"`
 
 	// Render is the HCL content that will be planned
 	// +kubebuilder:validation:Required

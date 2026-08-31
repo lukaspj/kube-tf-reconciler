@@ -168,7 +168,8 @@ type AuthenticationSpec struct {
 
 // WorkspaceSpec defines the desired state of Workspace.
 type WorkspaceSpec struct {
-	// TerraformVersion is the version of terraform to use, required when Tool is terraform
+	// TerraformVersion is the version of terraform to use
+	// Deprecated: use ToolVersion instead
 	// +kubebuilder:validation:Optional
 	TerraformVersion string `json:"terraformVersion,omitempty"`
 
@@ -178,9 +179,9 @@ type WorkspaceSpec struct {
 	// +kubebuilder:validation:Enum=terraform;opentofu
 	Tool Tool `json:"tool,omitempty"`
 
-	// TofuVersion is the version of OpenTofu to use, required when Tool is opentofu
+	// ToolVersion is the version of the IaC tool to use
 	// +kubebuilder:validation:Optional
-	TofuVersion string `json:"tofuVersion,omitempty"`
+	ToolVersion string `json:"toolVersion,omitempty"`
 
 	// Backend is the backend configuration for the workspace
 	// +kubebuilder:validation:Required

@@ -707,19 +707,12 @@ func (r *WorkspaceReconciler) handleManualRetry(ctx context.Context, ws *tfv1alp
 
 	log.V(DebugLevel).Info("manual retry requested, clearing backoff")
 
-	old := ws.DeepCopy()
-	delete(ws.Annotations, tfv1alphav1.ManualRetryAnnotation)
-	err := r.Client.Patch(ctx, ws, client.MergeFrom(old))
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to patch workspace during manual retry: %w", err), true
-	}
-
-	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(ws), ws); err != nil {
 			return err
 		}
 
-		old = ws.DeepCopy()
+		old := ws.DeepCopy()
 		ws.Status.Backoff.NextRetryTime = nil
 		ws.Status.Backoff.RetryCount = 0
 		ws.Status.NextRefreshTimestamp = metav1.Now()
@@ -728,6 +721,13 @@ func (r *WorkspaceReconciler) handleManualRetry(ctx context.Context, ws *tfv1alp
 	})
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to clear backoff during manual retry: %w", err), true
+	}
+
+	old := ws.DeepCopy()
+	delete(ws.Annotations, tfv1alphav1.ManualRetryAnnotation)
+	err = r.Client.Patch(ctx, ws, client.MergeFrom(old))
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to patch workspace during manual retry: %w", err), true
 	}
 
 	return ctrl.Result{}, nil, false

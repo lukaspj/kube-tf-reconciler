@@ -169,12 +169,19 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}()
 
 	logf.IntoContext(ctx, log.WithValues("workspace", req.String()))
-	if ws.Status.ObservedGeneration == ws.Generation && time.Now().Before(ws.Status.NextRefreshTimestamp.Time) && !ws.ManualApplyRequested() {
+	if ws.Status.ObservedGeneration == ws.Generation &&
+		time.Now().Before(ws.Status.NextRefreshTimestamp.Time) &&
+		!ws.ManualRetryRequested() &&
+		!ws.ManualApplyRequested() {
 		return ctrl.Result{RequeueAfter: time.Until(ws.Status.NextRefreshTimestamp.Time)}, nil
 	}
 
 	// Record reconciliation attempt
 	metrics.RecordReconciliation(ws.Namespace, ws.Name)
+
+	if res, err, ret := r.handleManualRetry(ctx, ws); ret {
+		return res, err
+	}
 
 	res, err, ret, tool := r.setupTerraformForWorkspace(ctx, ws)
 	if ret {
@@ -686,6 +693,41 @@ func (r *WorkspaceReconciler) handleDeletionAndFinalizers(ctx context.Context, w
 		if err := r.Update(ctx, ws); err != nil {
 			return ctrl.Result{}, err, true
 		}
+	}
+
+	return ctrl.Result{}, nil, false
+}
+
+func (r *WorkspaceReconciler) handleManualRetry(ctx context.Context, ws *tfv1alphav1.Workspace) (ctrl.Result, error, bool) {
+	log := logf.FromContext(ctx)
+
+	if !ws.ManualRetryRequested() {
+		return ctrl.Result{}, nil, false
+	}
+
+	log.V(DebugLevel).Info("manual retry requested, clearing backoff")
+
+	old := ws.DeepCopy()
+	delete(ws.Annotations, tfv1alphav1.ManualRetryAnnotation)
+	err := r.Client.Patch(ctx, ws, client.MergeFrom(old))
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to patch workspace during manual retry: %w", err), true
+	}
+
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(ws), ws); err != nil {
+			return err
+		}
+
+		old = ws.DeepCopy()
+		ws.Status.Backoff.NextRetryTime = nil
+		ws.Status.Backoff.RetryCount = 0
+		ws.Status.NextRefreshTimestamp = metav1.Now()
+
+		return r.Client.Status().Patch(ctx, ws, client.MergeFrom(old))
+	})
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to clear backoff during manual retry: %w", err), true
 	}
 
 	return ctrl.Result{}, nil, false

@@ -1,0 +1,18 @@
+{{- if and .Values.sourceWatcher.enabled (gt (.Values.sourceWatcher.webhookPort | int) 0) }}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: {{ .Values.appName }}-source-watcher
+    app.kubernetes.io/component: source-watcher
+    app.kubernetes.io/part-of: {{ .Values.appName }}
+  name: {{ .Values.appName }}-source-watcher
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.appName }}-source-watcher
+  ports:
+  - name: http
+    port: {{ .Values.sourceWatcher.service.port }}
+    targetPort: http
+{{- end }}

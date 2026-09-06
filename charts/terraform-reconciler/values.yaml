@@ -44,6 +44,24 @@ ui:
     # is generated at startup (sessions reset on every pod restart).
     sessionSecret: ""
 
+# Source watcher: polls upstream module revisions (git ls-remote) and
+# receives SCM webhooks to trigger workspace refreshes on module changes
+sourceWatcher:
+  enabled: false
+  replicas: 1
+  # Namespace to watch (empty = all namespaces)
+  namespace: ""
+  # Poll interval for upstream revision checks
+  interval: 5m
+  # Webhook receiver port (0 disables the webhook server)
+  webhookPort: 8080
+  service:
+    port: 80
+  # GitHub webhook secret for signature verification. When empty, unsigned
+  # payloads are accepted. Note: git authentication (SSH keys, netrc) must
+  # be provided to the pod for private module sources.
+  githubSecret: ""
+
 # Environment variables for the reconciler container
 env:
   KREC_NAMESPACE: "terraform-reconciler"

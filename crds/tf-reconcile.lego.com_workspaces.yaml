@@ -374,6 +374,14 @@ spec:
                   workspace
                 format: int64
                 type: integer
+              observedModuleRevisions:
+                additionalProperties:
+                  type: string
+                description: |-
+                  ObservedModuleRevisions holds the upstream module revisions (map
+                  source -> revision) that were observed by the last successful plan.
+                  The source watcher uses this to detect pending revision updates.
+                type: object
               terraformMessage:
                 description: TerraformMessage provides details about the current terraform
                   operation

@@ -1,6 +1,9 @@
 package v1alpha1
 
 import (
+	"encoding/json"
+	"maps"
+
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -33,8 +36,12 @@ const (
 	ManualApplyAnnotation   = "tf-reconcile.lego.com/manual-apply"
 	ManualDestroyAnnotation = "tf-reconcile.lego.com/manual-destroy"
 	ManualRetryAnnotation   = "tf-reconcile.lego.com/manual-retry"
-	WorkspacePlanLabel      = "tf-reconcile.lego.com/workspace"
-	WorkspaceFinalizer      = "tf-reconcile.lego.com/finalizer"
+	// ModuleRevisionAnnotation is set by the source watcher with the
+	// upstream module revisions (JSON map source -> revision) that should
+	// be planned next. It bypasses the periodic refresh gate.
+	ModuleRevisionAnnotation = "tf-reconcile.lego.com/module-revision"
+	WorkspacePlanLabel       = "tf-reconcile.lego.com/workspace"
+	WorkspaceFinalizer       = "tf-reconcile.lego.com/finalizer"
 )
 
 // BackendSpec defines the backend configuration for the workspace
@@ -312,6 +319,12 @@ type WorkspaceStatus struct {
 	// +kubebuilder:deprecatedversion:warning="This field is deprecated and will be removed in a future release. Use CurrentPlan instead."
 	// +kubebuilder:validation:Optional
 	LatestPlan string `json:"latestPlan,omitempty"`
+
+	// ObservedModuleRevisions holds the upstream module revisions (map
+	// source -> revision) that were observed by the last successful plan.
+	// The source watcher uses this to detect pending revision updates.
+	// +kubebuilder:validation:Optional
+	ObservedModuleRevisions map[string]string `json:"observedModuleRevisions,omitempty"`
 }
 
 // PlanReference contains a reference to a Plan resource
@@ -350,6 +363,29 @@ func (w *Workspace) ManualDestroyRequested() bool {
 func (w *Workspace) ManualRetryRequested() bool {
 	_, ok := w.Annotations[ManualRetryAnnotation]
 	return ok
+}
+
+// ModuleRevisions returns the requested module revisions from the
+// ModuleRevisionAnnotation (JSON map source -> revision), or nil.
+func (w *Workspace) ModuleRevisions() map[string]string {
+	value, ok := w.Annotations[ModuleRevisionAnnotation]
+	if !ok {
+		return nil
+	}
+	var revisions map[string]string
+	if err := json.Unmarshal([]byte(value), &revisions); err != nil {
+		return nil
+	}
+	if len(revisions) == 0 {
+		return nil
+	}
+	return revisions
+}
+
+// ModuleRevisionChanged reports whether the requested module revisions
+// differ from the ones observed by the last successful plan.
+func (w *Workspace) ModuleRevisionChanged() bool {
+	return !maps.Equal(w.ModuleRevisions(), w.Status.ObservedModuleRevisions)
 }
 
 // WorkspaceList contains a list of Workspace.

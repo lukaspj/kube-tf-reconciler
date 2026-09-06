@@ -173,7 +173,8 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if ws.Status.ObservedGeneration == ws.Generation &&
 		time.Now().Before(ws.Status.NextRefreshTimestamp.Time) &&
 		!ws.ManualRetryRequested() &&
-		!ws.ManualApplyRequested() {
+		!ws.ManualApplyRequested() &&
+		!ws.ModuleRevisionChanged() {
 		return ctrl.Result{RequeueAfter: time.Until(ws.Status.NextRefreshTimestamp.Time)}, nil
 	}
 
@@ -779,6 +780,7 @@ func (r *WorkspaceReconciler) handleReschedule(ctx context.Context, ws *tfv1alph
 		old = ws.DeepCopy()
 		ws.Status.ObservedGeneration = ws.Generation
 		ws.Status.NextRefreshTimestamp = metav1.NewTime(time.Now().Add(refreshIntervalFor(ws)))
+		ws.Status.ObservedModuleRevisions = ws.ModuleRevisions()
 
 		return r.Client.Status().Patch(ctx, ws, client.MergeFrom(old))
 	})

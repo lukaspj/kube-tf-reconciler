@@ -1,0 +1,60 @@
+{{- if .Values.sourceWatcher.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/version: {{ .Values.image.tag }}
+    app.kubernetes.io/name: {{ .Values.appName }}-source-watcher
+    app.kubernetes.io/component: source-watcher
+    app.kubernetes.io/part-of: {{ .Values.appName }}
+  name: {{ .Values.appName }}-source-watcher
+spec:
+  replicas: {{ .Values.sourceWatcher.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.appName }}-source-watcher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/version: {{ .Values.image.tag }}
+        app.kubernetes.io/name: {{ .Values.appName }}-source-watcher
+        app.kubernetes.io/component: source-watcher
+        app.kubernetes.io/part-of: {{ .Values.appName }}
+        app: {{ .Values.appName }}-source-watcher
+    spec:
+      serviceAccountName: {{ .Values.appName }}-source-watcher
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: {{ .Values.appName }}-source-watcher
+        image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        command: ["krec"]
+        args:
+          - "source-watcher"
+          - "--in-cluster"
+          - "--interval"
+          - {{ .Values.sourceWatcher.interval | quote }}
+          - "--namespace"
+          - {{ .Values.sourceWatcher.namespace | quote }}
+          {{- if gt (.Values.sourceWatcher.webhookPort | int) 0 }}
+          - "--webhook-port"
+          - {{ .Values.sourceWatcher.webhookPort | quote }}
+          {{- end }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.sourceWatcher.webhookPort }}
+          protocol: TCP
+        {{- if .Values.sourceWatcher.githubSecret }}
+        env:
+        - name: KREC_SOURCE_WEBHOOK_GITHUB_SECRET
+          value: {{ .Values.sourceWatcher.githubSecret | quote }}
+        {{- end }}
+{{- end }}

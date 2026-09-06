@@ -48,6 +48,7 @@ const (
 	defaultPlanHistoryLimit = 3
 	planCreationTimeout     = 2 * time.Second
 	nextRefreshInterval     = 30 * time.Minute
+	minRefreshInterval      = time.Minute
 
 	TFErrEventReason      = "TerraformError"
 	TFPlanEventReason     = "TerraformPlan"
@@ -733,6 +734,25 @@ func (r *WorkspaceReconciler) handleManualRetry(ctx context.Context, ws *tfv1alp
 	return ctrl.Result{}, nil, false
 }
 
+// refreshIntervalFor returns the reconcilition interval configured on the
+// workspace spec, falling back to the default when unset or invalid. Values
+// below minRefreshInterval are clamped to protect the cluster from hot loops.
+func refreshIntervalFor(ws *tfv1alphav1.Workspace) time.Duration {
+	if ws.Spec.RefreshInterval == "" {
+		return nextRefreshInterval
+	}
+	d, err := time.ParseDuration(ws.Spec.RefreshInterval)
+	if err != nil || d <= 0 {
+		slog.WarnContext(context.Background(), "invalid refreshInterval on workspace, using default",
+			"workspace", ws.Name, "refreshInterval", ws.Spec.RefreshInterval, "default", nextRefreshInterval)
+		return nextRefreshInterval
+	}
+	if d < minRefreshInterval {
+		return minRefreshInterval
+	}
+	return d
+}
+
 func (r *WorkspaceReconciler) handleReschedule(ctx context.Context, ws *tfv1alphav1.Workspace) (ctrl.Result, error, bool) {
 	log := logf.FromContext(ctx)
 
@@ -758,7 +778,7 @@ func (r *WorkspaceReconciler) handleReschedule(ctx context.Context, ws *tfv1alph
 
 		old = ws.DeepCopy()
 		ws.Status.ObservedGeneration = ws.Generation
-		ws.Status.NextRefreshTimestamp = metav1.NewTime(time.Now().Add(nextRefreshInterval))
+		ws.Status.NextRefreshTimestamp = metav1.NewTime(time.Now().Add(refreshIntervalFor(ws)))
 
 		return r.Client.Status().Patch(ctx, ws, client.MergeFrom(old))
 	})

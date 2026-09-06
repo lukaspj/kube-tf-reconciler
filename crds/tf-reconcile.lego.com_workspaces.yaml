@@ -203,6 +203,13 @@ spec:
                   - source
                   type: object
                 type: array
+              refreshInterval:
+                description: |-
+                  RefreshInterval is how often the workspace should be reconciled, as a
+                  Go duration string (e.g. "30m", "1h", "2h30m"). When empty the default
+                  of 30m applies. Values below 1m are clamped to 1m.
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
               terraformRC:
                 description: TerraformRC contains the content of the .terraformrc
                   file

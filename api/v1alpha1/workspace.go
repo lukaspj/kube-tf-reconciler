@@ -232,6 +232,13 @@ type WorkspaceSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=30
 	PlanHistoryLimit int32 `json:"planHistoryLimit,omitempty"`
+
+	// RefreshInterval is how often the workspace should be reconciled, as a
+	// Go duration string (e.g. "30m", "1h", "2h30m"). When empty the default
+	// of 30m applies. Values below 1m are clamped to 1m.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$`
+	RefreshInterval string `json:"refreshInterval,omitempty"`
 }
 
 type BackoffStatus struct {

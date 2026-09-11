@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -470,15 +471,30 @@ func (r *WorkspaceReconciler) handlePlan(ctx context.Context, ws *tfv1alphav1.Wo
 	if !changed {
 		log.Info("plan has no changes, marking as completed", "workspace", ws.Name)
 		now := metav1.Now()
+		plan, err := r.createPlanRecord(ctx, ws, false, planOutput, "", tfv1alphav1.PlanPhasePlanned, false)
+		if err != nil {
+			r.Recorder.Eventf(ws, v1.EventTypeWarning, TFErrEventReason, "Failed to create plan record: %v", err)
+			return ctrl.Result{}, fmt.Errorf("failed to create plan record: %w", err), true
+		}
 		err = r.updateWorkspaceStatus(ctx, ws, TFPhaseCompleted, "Plan completed - no changes needed", func(s *tfv1alphav1.WorkspaceStatus) {
 			s.HasChanges = false
+			s.NewPlanNeeded = false
+			s.NewApplyNeeded = false
 			s.LastExecutionTime = &now
 			s.LastPlanOutput = ""
 			s.Backoff.RetryCount = 0
+			s.CurrentPlan = &tfv1alphav1.PlanReference{
+				Name:      plan.Name,
+				Namespace: plan.Namespace,
+			}
 		})
 		if err != nil {
 			return ctrl.Result{}, err, true
 		}
+
+		r.Recorder.Eventf(ws, v1.EventTypeNormal, TFPlanEventReason, "%s plan completed, changes: false", capitalize(tool.Name()))
+
+		return ctrl.Result{}, nil, false
 	}
 
 	plan, err := r.createPlanRecord(ctx, ws, changed, planOutput, "", tfv1alphav1.PlanPhasePlanned, false)
@@ -554,6 +570,9 @@ func (r *WorkspaceReconciler) handleApply(ctx context.Context, ws *tfv1alphav1.W
 		if err != nil {
 			log.Error(err, "failed to apply "+tool.Name(), "workspace", ws.Name)
 			r.Recorder.Eventf(ws, v1.EventTypeWarning, TFApplyEventReason, "Failed to apply %s: %v", tool.Name(), err)
+			if planErr := r.recordApplyResult(ctx, ws, tfv1alphav1.PlanPhaseErrored, "Plan completed but apply failed", applyOutput); planErr != nil {
+				r.Recorder.Eventf(ws, v1.EventTypeWarning, TFErrEventReason, "Failed to record failed apply in plan history: %v", planErr)
+			}
 			_ = r.updateWorkspaceStatus(ctx, ws, TFPhaseErrored, fmt.Sprintf("Failed to apply %s: %v", tool.Name(), err), func(s *tfv1alphav1.WorkspaceStatus) {
 				s.LastApplyOutput = applyOutput
 			})
@@ -561,10 +580,10 @@ func (r *WorkspaceReconciler) handleApply(ctx context.Context, ws *tfv1alphav1.W
 			return ctrl.Result{}, err, true
 		}
 
-		_, err = r.createPlanRecord(ctx, ws, ws.Status.HasChanges, ws.Status.LastPlanOutput, applyOutput, tfv1alphav1.PlanPhaseApplied, false)
-		if err != nil {
-			r.Recorder.Eventf(ws, v1.EventTypeWarning, TFErrEventReason, "Failed to create plan record after apply: %v", err)
-			return ctrl.Result{}, fmt.Errorf("failed to create plan record after failed apply: %w", err), true
+		if planErr := r.recordApplyResult(ctx, ws, tfv1alphav1.PlanPhaseApplied, "Plan completed and applied", applyOutput); planErr != nil {
+			// Non-fatal: the apply itself succeeded, so the workspace status must still be
+			// updated and NewApplyNeeded cleared to avoid re-running terraform apply.
+			r.Recorder.Eventf(ws, v1.EventTypeWarning, TFErrEventReason, "Failed to record apply result in plan history: %v", planErr)
 		}
 
 		now := metav1.Now()
@@ -918,10 +937,8 @@ func (r *WorkspaceReconciler) updateWorkspaceStatus(ctx context.Context, ws *tfv
 	return err
 }
 
-// createPlanRecord creates or updates a Plan CRD as an audit record after terraform execution
+// createPlanRecord creates a Plan CRD as an audit record after terraform execution
 func (r *WorkspaceReconciler) createPlanRecord(ctx context.Context, ws *tfv1alphav1.Workspace, hasChanges bool, planOutput, applyOutput string, phase tfv1alphav1.PlanPhase, destroy bool) (*tfv1alphav1.Plan, error) {
-	planName := fmt.Sprintf("%s-%d", ws.Name, ws.Generation)
-
 	var message string
 	switch phase {
 	case tfv1alphav1.PlanPhasePlanned:
@@ -941,8 +958,8 @@ func (r *WorkspaceReconciler) createPlanRecord(ctx context.Context, ws *tfv1alph
 	now := metav1.Now()
 	plan := &tfv1alphav1.Plan{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      planName,
-			Namespace: ws.Namespace,
+			GenerateName: ws.Name + "-",
+			Namespace:    ws.Namespace,
 			Labels: map[string]string{
 				tfv1alphav1.WorkspacePlanLabel: ws.Name,
 			},
@@ -966,8 +983,9 @@ func (r *WorkspaceReconciler) createPlanRecord(ctx context.Context, ws *tfv1alph
 		return nil, fmt.Errorf("failed to set controller reference on plan: %w", err)
 	}
 
-	err = r.Client.Create(ctx, plan)
-	if err != nil && !apierrors.IsAlreadyExists(err) {
+	// With GenerateName the API server retries name collisions itself, so any create
+	// error here is real and must not be tolerated.
+	if err := r.Client.Create(ctx, plan); err != nil {
 		return nil, fmt.Errorf("failed to create plan audit record: %w", err)
 	}
 
@@ -1017,6 +1035,70 @@ func (r *WorkspaceReconciler) createPlanRecord(ctx context.Context, ws *tfv1alph
 		return nil, fmt.Errorf("failed to update plan status: %w", err)
 	}
 	return plan, nil
+}
+
+// recordApplyResult records the result of an apply attempt on the workspace's current plan.
+// If the current plan reference is missing or stale, it falls back to creating a new plan
+// record so the apply result is never lost.
+func (r *WorkspaceReconciler) recordApplyResult(ctx context.Context, ws *tfv1alphav1.Workspace, phase tfv1alphav1.PlanPhase, message, applyOutput string) error {
+	err := r.updatePlanRecord(ctx, ws, phase, message, applyOutput)
+	if err == nil {
+		return nil
+	}
+	logf.FromContext(ctx).Error(err, "failed to update current plan record, falling back to a new plan record", "workspace", ws.Name)
+
+	plan, createErr := r.createPlanRecord(ctx, ws, true, "", applyOutput, phase, false)
+	if createErr != nil {
+		return fmt.Errorf("failed to update plan record: %w; failed to create fallback plan record: %w", err, createErr)
+	}
+	return r.setCurrentPlanRef(ctx, ws, plan)
+}
+
+// setCurrentPlanRef points the workspace status at the given plan record
+func (r *WorkspaceReconciler) setCurrentPlanRef(ctx context.Context, ws *tfv1alphav1.Workspace, plan *tfv1alphav1.Plan) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(ws), ws); err != nil {
+			return err
+		}
+
+		old := ws.DeepCopy()
+		ws.Status.CurrentPlan = &tfv1alphav1.PlanReference{
+			Name:      plan.Name,
+			Namespace: plan.Namespace,
+		}
+
+		return r.Client.Status().Patch(ctx, ws, client.MergeFrom(old))
+	})
+}
+
+// updatePlanRecord updates the workspace's current plan with the result of an apply attempt
+func (r *WorkspaceReconciler) updatePlanRecord(ctx context.Context, ws *tfv1alphav1.Workspace, phase tfv1alphav1.PlanPhase, message, applyOutput string) error {
+	if ws.Status.CurrentPlan == nil {
+		return fmt.Errorf("workspace %s has no current plan", ws.Name)
+	}
+
+	planKey := client.ObjectKey{
+		Namespace: ws.Status.CurrentPlan.Namespace,
+		Name:      ws.Status.CurrentPlan.Name,
+	}
+	if planKey.Namespace == "" {
+		planKey.Namespace = ws.Namespace
+	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		plan := &tfv1alphav1.Plan{}
+		if err := r.Client.Get(ctx, planKey, plan); err != nil {
+			return err
+		}
+
+		old := plan.DeepCopy()
+		plan.Status.Phase = phase
+		plan.Status.Message = message
+		plan.Status.ApplyOutput = applyOutput
+		now := metav1.Now()
+		plan.Status.CompletionTime = &now
+
+		return r.Client.Status().Patch(ctx, plan, client.MergeFrom(old))
+	})
 }
 
 // getEnvsForExecution gets environment variables for terraform execution
@@ -1181,24 +1263,58 @@ func (r *WorkspaceReconciler) cleanupOldPlans(ctx context.Context, ws *tfv1alpha
 		limit = int(ws.Spec.PlanHistoryLimit)
 	}
 
-	if len(planList.Items) <= limit {
-		return nil
-	}
-
 	plans := planList.Items
-	sort.Slice(plans, func(i, j int) bool {
-		return plans[i].CreationTimestamp.Time.Before(plans[j].CreationTimestamp.Time)
+	sort.SliceStable(plans, func(i, j int) bool {
+		ti, tj := plans[i].CreationTimestamp.Time, plans[j].CreationTimestamp.Time
+		if !ti.Equal(tj) {
+			return ti.Before(tj)
+		}
+		// Deterministic tiebreak for same-second creation: ResourceVersion tracks
+		// the etcd revision, so a higher value means the object was written later.
+		ri, erri := strconv.ParseInt(plans[i].ResourceVersion, 10, 64)
+		rj, errrj := strconv.ParseInt(plans[j].ResourceVersion, 10, 64)
+		if erri == nil && errrj == nil {
+			return ri < rj
+		}
+		return plans[i].ResourceVersion < plans[j].ResourceVersion
 	})
 
-	toDelete := plans[:len(plans)-int(ws.Spec.PlanHistoryLimit)]
-	for _, plan := range toDelete {
-		err := r.Client.Delete(ctx, &plan)
+	currentPlanName := ""
+	if ws.Status.CurrentPlan != nil {
+		currentPlanName = ws.Status.CurrentPlan.Name
+	}
+
+	// Keep the current plan plus the newest applied plans that had changes; everything else is stale.
+	historyCount := 0
+	var toDelete []tfv1alphav1.Plan
+	for i := len(plans) - 1; i >= 0; i-- {
+		plan := plans[i]
+		if plan.Name == currentPlanName {
+			continue
+		}
+		if isPlanHistoryEntry(plan) && historyCount < limit {
+			historyCount++
+			continue
+		}
+		toDelete = append(toDelete, plan)
+	}
+
+	for i := range toDelete {
+		err := r.Client.Delete(ctx, &toDelete[i])
 		if err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to delete old plan %s: %w", plan.Name, err)
+			return fmt.Errorf("failed to delete old plan %s: %w", toDelete[i].Name, err)
 		}
 	}
 
 	return nil
+}
+
+// isPlanHistoryEntry reports whether a plan represents an applied change kept as history
+func isPlanHistoryEntry(plan tfv1alphav1.Plan) bool {
+	if !plan.Status.HasChanges {
+		return false
+	}
+	return plan.Status.Phase == tfv1alphav1.PlanPhaseApplied || plan.Status.Phase == tfv1alphav1.PlanPhaseErrored
 }
 
 func leaseName(ws *tfv1alphav1.Workspace) string {

@@ -371,7 +371,8 @@ func TestWorkspaceController(t *testing.T) {
 
 		assert.Len(t, plans.Items, 1)
 		assert.Equal(t, 2, int(ws.Generation))
-		assert.Equal(t, fmt.Sprintf("%s-2", ws.Name), plans.Items[0].Name)
+		require.NotNil(t, ws.Status.CurrentPlan)
+		assert.Equal(t, ws.Status.CurrentPlan.Name, plans.Items[0].Name)
 	})
 
 	t.Run("error message persisted on terraform init failure", func(t *testing.T) {
@@ -485,6 +486,14 @@ resource "random_pet" "name" {
 		assert.Contains(t, ws.Status.LastErrorMessage, "Failed to apply terraform")
 		assert.NotNil(t, ws.Status.LastErrorTime)
 		assert.NotEmpty(t, ws.Status.LastApplyOutput)
+
+		plans := &tfv1alphav1.PlanList{}
+		err = wait.For(conditions.New(k.Resources()).ResourceListN(plans, 1, plansForWs(ws)), wait.WithContext(ctx))
+		assert.NoError(t, err)
+		require.Len(t, plans.Items, 1)
+		assert.Equal(t, tfv1alphav1.PlanPhaseErrored, plans.Items[0].Status.Phase)
+		assert.True(t, plans.Items[0].Status.HasChanges)
+		assert.NotEmpty(t, plans.Items[0].Status.ApplyOutput)
 	})
 
 	t.Run("error message cleared on successful reconciliation", func(t *testing.T) {
@@ -586,6 +595,162 @@ func TestHandleManualRetry(t *testing.T) {
 	})
 }
 
+func TestCleanupOldPlans(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, tfv1alphav1.AddToScheme(scheme))
+
+	base := time.Now()
+	newPlan := func(name string, phase tfv1alphav1.PlanPhase, hasChanges bool, age time.Duration) *tfv1alphav1.Plan {
+		return &tfv1alphav1.Plan{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              name,
+				Namespace:         "default",
+				CreationTimestamp: metav1.NewTime(base.Add(-age)),
+				Labels:            map[string]string{tfv1alphav1.WorkspacePlanLabel: "cleanup-ws"},
+			},
+			Status: tfv1alphav1.PlanStatus{
+				Phase:      phase,
+				HasChanges: hasChanges,
+			},
+		}
+	}
+
+	cleanupWs := func(limit int32) *tfv1alphav1.Workspace {
+		return &tfv1alphav1.Workspace{
+			ObjectMeta: metav1.ObjectMeta{Name: "cleanup-ws", Namespace: "default"},
+			Spec:       tfv1alphav1.WorkspaceSpec{PlanHistoryLimit: limit},
+			Status: tfv1alphav1.WorkspaceStatus{
+				CurrentPlan: &tfv1alphav1.PlanReference{Name: "current", Namespace: "default"},
+			},
+		}
+	}
+
+	listNames := func(t *testing.T, c client.Client) []string {
+		t.Helper()
+		var plans tfv1alphav1.PlanList
+		require.NoError(t, c.List(t.Context(), &plans, client.InNamespace("default"), client.MatchingLabels{tfv1alphav1.WorkspacePlanLabel: "cleanup-ws"}))
+		names := make([]string, 0, len(plans.Items))
+		for _, p := range plans.Items {
+			names = append(names, p.Name)
+		}
+		return names
+	}
+
+	t.Run("keeps current plan and newest applied history", func(t *testing.T) {
+		ws := cleanupWs(1)
+		objects := []client.Object{
+			ws,
+			newPlan("current", tfv1alphav1.PlanPhasePlanned, false, 0),
+			newPlan("applied-old", tfv1alphav1.PlanPhaseApplied, true, 4*time.Minute),
+			newPlan("applied-mid", tfv1alphav1.PlanPhaseApplied, true, 3*time.Minute),
+			newPlan("applied-new", tfv1alphav1.PlanPhaseApplied, true, 2*time.Minute),
+			newPlan("errored-old", tfv1alphav1.PlanPhaseErrored, true, 5*time.Minute),
+			newPlan("planned-not-applied", tfv1alphav1.PlanPhasePlanned, true, time.Minute),
+			newPlan("no-change-old", tfv1alphav1.PlanPhasePlanned, false, time.Minute),
+		}
+		c := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+		r := &WorkspaceReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(32)}
+
+		require.NoError(t, r.cleanupOldPlans(t.Context(), ws))
+		assert.ElementsMatch(t, []string{"current", "applied-new"}, listNames(t, c))
+	})
+
+	t.Run("removes stale unapplied plans without history", func(t *testing.T) {
+		ws := cleanupWs(3)
+		objects := []client.Object{
+			ws,
+			newPlan("current", tfv1alphav1.PlanPhasePlanned, false, 0),
+			newPlan("no-change-old", tfv1alphav1.PlanPhasePlanned, false, 2*time.Minute),
+			newPlan("planned-not-applied", tfv1alphav1.PlanPhasePlanned, true, time.Minute),
+			newPlan("applied-old", tfv1alphav1.PlanPhaseApplied, true, 3*time.Minute),
+		}
+		c := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+		r := &WorkspaceReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(32)}
+
+		require.NoError(t, r.cleanupOldPlans(t.Context(), ws))
+		assert.ElementsMatch(t, []string{"current", "applied-old"}, listNames(t, c))
+	})
+}
+
+func TestRecordApplyResult(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, tfv1alphav1.AddToScheme(scheme))
+
+	ws := func(currentPlan *tfv1alphav1.PlanReference) *tfv1alphav1.Workspace {
+		return &tfv1alphav1.Workspace{
+			ObjectMeta: metav1.ObjectMeta{Name: "record-ws", Namespace: "default"},
+			Status:     tfv1alphav1.WorkspaceStatus{CurrentPlan: currentPlan},
+		}
+	}
+	existingPlan := func() *tfv1alphav1.Plan {
+		return &tfv1alphav1.Plan{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "record-ws-1",
+				Namespace: "default",
+				Labels:    map[string]string{tfv1alphav1.WorkspacePlanLabel: "record-ws"},
+			},
+			Status: tfv1alphav1.PlanStatus{Phase: tfv1alphav1.PlanPhasePlanned, HasChanges: true},
+		}
+	}
+	getPlan := func(t *testing.T, c client.Client, name string) *tfv1alphav1.Plan {
+		t.Helper()
+		plan := &tfv1alphav1.Plan{}
+		require.NoError(t, c.Get(t.Context(), client.ObjectKey{Name: name, Namespace: "default"}, plan))
+		return plan
+	}
+
+	t.Run("updates the existing current plan", func(t *testing.T) {
+		ws := ws(&tfv1alphav1.PlanReference{Name: "record-ws-1", Namespace: "default"})
+		c := clientfake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(ws, existingPlan()).WithObjects(ws, existingPlan()).Build()
+		r := &WorkspaceReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(32)}
+
+		require.NoError(t, r.recordApplyResult(t.Context(), ws, tfv1alphav1.PlanPhaseApplied, "Plan completed and applied", "apply output"))
+
+		var plans tfv1alphav1.PlanList
+		require.NoError(t, c.List(t.Context(), &plans, client.InNamespace("default")))
+		require.Len(t, plans.Items, 1)
+		plan := getPlan(t, c, "record-ws-1")
+		assert.Equal(t, tfv1alphav1.PlanPhaseApplied, plan.Status.Phase)
+		assert.Equal(t, "apply output", plan.Status.ApplyOutput)
+		assert.True(t, plan.Status.HasChanges)
+	})
+
+	t.Run("falls back to a new record when current plan is missing", func(t *testing.T) {
+		ws := ws(&tfv1alphav1.PlanReference{Name: "gone", Namespace: "default"})
+		c := clientfake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(ws, existingPlan()).WithObjects(ws).Build()
+		r := &WorkspaceReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(32)}
+
+		require.NoError(t, r.recordApplyResult(t.Context(), ws, tfv1alphav1.PlanPhaseErrored, "Plan completed but apply failed", "apply output"))
+
+		var plans tfv1alphav1.PlanList
+		require.NoError(t, c.List(t.Context(), &plans, client.InNamespace("default")))
+		require.Len(t, plans.Items, 1)
+		plan := plans.Items[0]
+		assert.Equal(t, tfv1alphav1.PlanPhaseErrored, plan.Status.Phase)
+		assert.Equal(t, "apply output", plan.Status.ApplyOutput)
+		assert.True(t, plan.Status.HasChanges)
+
+		updatedWs := &tfv1alphav1.Workspace{}
+		require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(ws), updatedWs))
+		require.NotNil(t, updatedWs.Status.CurrentPlan)
+		assert.Equal(t, plan.Name, updatedWs.Status.CurrentPlan.Name)
+	})
+
+	t.Run("falls back to a new record when current plan is nil", func(t *testing.T) {
+		ws := ws(nil)
+		c := clientfake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(ws, existingPlan()).WithObjects(ws).Build()
+		r := &WorkspaceReconciler{Client: c, Scheme: scheme, Recorder: record.NewFakeRecorder(32)}
+
+		require.NoError(t, r.recordApplyResult(t.Context(), ws, tfv1alphav1.PlanPhaseApplied, "Plan completed and applied", "apply output"))
+
+		var plans tfv1alphav1.PlanList
+		require.NoError(t, c.List(t.Context(), &plans, client.InNamespace("default")))
+		require.Len(t, plans.Items, 1)
+		assert.Equal(t, tfv1alphav1.PlanPhaseApplied, plans.Items[0].Status.Phase)
+	})
+}
+
 func plansForWs(ws *tfv1alphav1.Workspace) resources.ListOption {
 	return resources.WithLabelSelector(fmt.Sprintf("%s=%s", tfv1alphav1.WorkspacePlanLabel, ws.Name))
 }
@@ -600,9 +765,9 @@ func newWs(name, moduleSource string) *tfv1alphav1.Workspace {
 			Backend: tfv1alphav1.BackendSpec{
 				Type: "local",
 			},
-			AutoApply:        true,
-			PreventDestroy:   true,
-			ToolVersion:      "1.13.3",
+			AutoApply:      true,
+			PreventDestroy: true,
+			ToolVersion:    "1.13.3",
 			ProviderSpecs: []tfv1alphav1.ProviderSpec{
 				{
 					Name:    "aws",
@@ -812,10 +977,17 @@ resource "random_pet" "name" {
 			Namespace: freeWs.Namespace,
 		}, &lease)
 		assert.True(t, apierrors.IsNotFound(err))
+		var ws tfv1alphav1.Workspace
+		err = client.Get(context.TODO(), types.NamespacedName{
+			Name:      freeWs.Name,
+			Namespace: freeWs.Namespace,
+		}, &ws)
+		require.NoError(t, err)
+		require.NotNil(t, ws.Status.CurrentPlan)
 		var plan tfv1alphav1.Plan
 		err = client.Get(context.TODO(), types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%d", freeWs.Name, freeWs.Generation),
-			Namespace: freeWs.Namespace,
+			Name:      ws.Status.CurrentPlan.Name,
+			Namespace: ws.Status.CurrentPlan.Namespace,
 		}, &plan)
 		assert.NoError(t, err)
 	})
